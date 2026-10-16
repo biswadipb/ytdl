@@ -148,3 +148,17 @@ def test_tray_menu_actions_reach_the_window(app, monkeypatch):
     app.events.put(("tray", "show"))
     pump(app, 2, lambda: bool(shown))
     assert shown == [True]
+
+
+def test_ticked_checkboxes_are_filled_with_the_accent_colour_in_both_themes(app):
+    """Regression: in light mode a ticked box looked empty because the tick was white on white."""
+    from tkinter import ttk
+    for mode in ("light", "dark"):
+        app.set_mode(mode)
+        mapping = dict((state, color) for state, color in ttk.Style(app).map("TCheckbutton", "indicatorbackground"))
+        assert mapping.get("selected") == gui.PALETTES[mode]["accent"]
+
+
+def test_the_sites_label_wraps_instead_of_running_off_the_window(app):
+    labels = [w for w in gui.find_widgets(app.urls_frame, gui.ttk.Label) if "Paste links" in str(w.cget("text"))]
+    assert labels and int(labels[0].cget("wraplength")) > 0
