@@ -2,6 +2,8 @@
 
 # ytdl
 
+**Website and downloads: <https://biswadipb.github.io/ytdl/>**
+
 Download videos from **YouTube, Instagram, X/Twitter, Facebook, Threads, Dailymotion, TikTok, Reddit, Vimeo, Twitch and SoundCloud** to your own device, as
 video or audio-only. Everything runs locally: no accounts, no web service. Saved files play offline.
 
@@ -26,6 +28,14 @@ video or audio-only. Everything runs locally: no accounts, no web service. Saved
 | Android | `ytdl-android.apk` | `android/` |
 
 Only download videos you have the right to save. YouTube's Terms of Service restrict downloading without permission.
+
+## Screenshots
+
+Real screenshots of the apps, filled with demo data.
+
+<p align="center"><img src="docs/screenshots/desktop-main-light.png" width="520" alt="The desktop app: pasted link, preview, format choices and the download queue"> <img src="docs/screenshots/desktop-main-dark.png" width="520" alt="The desktop app in dark mode"></p>
+<p align="center"><img src="docs/screenshots/desktop-subscriptions-light.png" width="520" alt="The Subscriptions tab with followed channels and storage controls"></p>
+<p align="center"><img src="docs/screenshots/android-home-light.png" width="200" alt="Android: first-time prompt to download shared links automatically"> <img src="docs/screenshots/android-scroll2-light.png" width="200" alt="Android: subscriptions and scheduling options"> <img src="docs/screenshots/android-scroll3-light.png" width="200" alt="Android: storage and shared-link settings"> <img src="docs/screenshots/android-home-dark.png" width="200" alt="Android in dark mode"></p>
 
 ## Install (no coding needed)
 
@@ -152,6 +162,10 @@ Master design: `assets/logo.svg`. To regenerate the PNG, `.ico` and `.icns` file
 yt-dlp (the download engine) can't read Threads, and Threads only reveals a post's video files after its JavaScript has run. So ytdl loads the post in a browser in the background, reads the video links from the finished page, and downloads them like any other file. Only the first post on the page counts, so replies and suggested posts are ignored. Tick "All videos in playlist/post" to save every clip of a multi-video post.
 
 This depends on how Threads builds its pages, so it can break when Threads changes. Cover art isn't embedded for Threads clips. If a Threads link fails, check that the post is public and has a video.
+
+## Screenshots and website
+
+The screenshots above come from CI, not mock-ups: the **Screenshots** workflow runs the real desktop window under a virtual display and the real Android app in an emulator (`tools/screenshots_desktop.py`, `tools/android_screens.sh`). The website is the `docs/` folder, published with GitHub Pages.
 
 ## Tests
 
