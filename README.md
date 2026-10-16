@@ -29,6 +29,21 @@ video or audio-only. Everything runs locally: no accounts, no web service. Saved
 
 Only download videos you have the right to save. YouTube's Terms of Service restrict downloading without permission.
 
+## ytdl minimal: just the basics
+
+Prefer something simpler? **ytdl minimal** is a small, separate app for Mac, Windows and Android with only the essentials: paste a link, choose **Video** or **Audio**, pick a quality, tap **Download**, and watch this session's downloads. The layout is identical on desktop and phone, and it follows your system's light or dark setting.
+
+<p align="center"><img src="docs/screenshots/minimal-desktop-light.png" width="260" alt="ytdl minimal on desktop, light"> <img src="docs/screenshots/minimal-desktop-dark.png" width="260" alt="ytdl minimal on desktop, dark"> <img src="docs/screenshots/minimal-android-light.png" width="170" alt="ytdl minimal on Android, light"> <img src="docs/screenshots/minimal-android-dark.png" width="170" alt="ytdl minimal on Android, dark"></p>
+
+| Platform | Download |
+|---|---|
+| Mac (Apple silicon) | `ytdl-minimal-mac-apple-silicon.dmg` |
+| Mac (Intel) | `ytdl-minimal-mac-intel.dmg` |
+| Windows | `ytdl-minimal-windows.exe` |
+| Android | `ytdl-minimal-android.apk` |
+
+Install steps are the same as the full app below. It works with the same sites, uses the same download engine (and keeps it updated quietly), and saves to `Downloads/ytdl`. What it leaves out on purpose: queues you manage, subscriptions, sign-in for private posts, clipping, subtitles, naming and folder rules, speed limits and storage controls. Channel and playlist links are refused with a note to use the full app. A copied link fills the box when you return to the app, but nothing downloads until you press **Download**. The code is in [`minimal/`](minimal).
+
 ## Screenshots
 
 Real screenshots of the apps, filled with demo data.
