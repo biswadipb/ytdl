@@ -42,6 +42,13 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: desktop/dist
         run: ditto -c -k --sequesterRsrc --keepParent ytdl.app "../../${{ matrix.name }}.zip"
+      - name: Package (Mac disk image)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir stage
+          ditto desktop/dist/ytdl.app stage/ytdl.app
+          ln -s /Applications stage/Applications
+          hdiutil create -quiet -volname ytdl -srcfolder stage -format UDZO "${{ matrix.name }}.dmg"
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -51,6 +58,7 @@ jobs:
           name: ${{ matrix.name }}
           path: |
             ${{ matrix.name }}.zip
+            ${{ matrix.name }}.dmg
             ${{ matrix.name }}.exe
 
   android:

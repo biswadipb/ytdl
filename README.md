@@ -29,9 +29,10 @@ Open the **Releases** page of this repo and download the file for your device.
 (The repo is private, so sign in to GitHub first.)
 
 ### Mac
-1. Download `ytdl-mac-apple-silicon.zip` (M1/M2/M3/M4 Macs) or `ytdl-mac-intel.zip` (older Intel Macs).
+1. Download the file for your Mac: `ytdl-mac-apple-silicon.dmg` (M1/M2/M3/M4) or `ytdl-mac-intel.dmg` (older Intel).
    Not sure? Apple menu → About This Mac: "Chip: Apple…" means Apple silicon.
-2. Double-click the zip, then drag **ytdl** into Applications.
+2. Open the dmg and drag **ytdl** onto the **Applications** shortcut. Then eject the disk image.
+   (Prefer a zip? Each Mac also has a `.zip` containing `ytdl.app`; unzip it and drag the app to Applications.)
 3. First launch only: the app is not signed by Apple, so macOS blocks it.
    Right-click **ytdl** → **Open** → **Open**. If macOS still refuses, run this once in Terminal:
    ```bash
