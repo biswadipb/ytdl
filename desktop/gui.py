@@ -9,8 +9,9 @@ import threading
 import time
 import tkinter as tk
 import urllib.request
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import subscriptions
 import updates
 import webbrowser
 import ytdl
@@ -191,7 +192,7 @@ class App(tk.Tk):
         self.urls_frame = ttk.Frame(main)
         self.urls_frame.pack(fill="x")
         self.urls_frame.columnconfigure(0, weight=1)
-        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)"
+        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads, Dailymotion (one per line)"
                   ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.urls = tk.Text(self.urls_frame, height=3, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
         self.urls.grid(row=1, column=0, sticky="ew")
@@ -317,6 +318,7 @@ class App(tk.Tk):
         ttk.Button(actions, text="Add to queue", style="Accent.TButton", command=self.add_to_queue).pack(side="left")
         self.more_btn = ttk.Button(actions, text="More options \u25be", command=self.toggle_more)
         self.more_btn.pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Follow channel", command=self.follow_channel).pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Open folder", command=self.open_folder).pack(side="left", padx=8)
         ttk.Button(actions, text="Update engine", command=lambda: self.start_engine_update(True)).pack(side="left")
         self.status = ttk.Label(actions, style="Muted.TLabel")
@@ -327,6 +329,9 @@ class App(tk.Tk):
         qtab, htab = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(qtab, text="Queue")
         tabs.add(htab, text="History")
+        stab = ttk.Frame(tabs, padding=6)
+        tabs.add(stab, text="Subscriptions")
+        self.build_subscriptions_tab(stab)
 
         self.tree = ttk.Treeview(qtab, columns=("status", "progress"), height=6)
         self.tree.heading("#0", text="Download")
@@ -367,6 +372,7 @@ class App(tk.Tk):
         self.after(5000, self.follow_system)
         self.after(1500, lambda: self.start_engine_update(False))
         self.after(2500, self.check_for_app_update)
+        self.after(4000, self.start_subscription_tick)
 
     # ---- theme -----------------------------------------------------------
     def restyle_widgets(self):
@@ -423,6 +429,169 @@ class App(tk.Tk):
                 pass  # offline or rate-limited: try again next launch
 
         threading.Thread(target=run, daemon=True).start()
+
+    # ---- subscriptions ---------------------------------------------------
+    def build_subscriptions_tab(self, tab):
+        ttk.Label(tab, text="Follow a channel or playlist (paste its link, then Follow channel) and new uploads "
+                  "download by themselves.", style="Muted.TLabel", wraplength=640).pack(anchor="w")
+        self.subs_tree = ttk.Treeview(tab, columns=("state", "checked"), height=4)
+        self.subs_tree.heading("#0", text="Following")
+        self.subs_tree.heading("state", text="State")
+        self.subs_tree.heading("checked", text="Last checked")
+        self.subs_tree.column("#0", width=320)
+        self.subs_tree.column("state", width=90, anchor="w")
+        self.subs_tree.column("checked", width=150, anchor="w")
+        self.subs_tree.pack(fill="x", pady=(6, 0))
+        row = ttk.Frame(tab, padding=(0, 6, 0, 0))
+        row.pack(fill="x")
+        ttk.Button(row, text="Check now", command=lambda: self.check_subscriptions(True)).pack(side="left")
+        ttk.Button(row, text="Pause / resume", command=self.toggle_subscription).pack(side="left", padx=6)
+        ttk.Button(row, text="Unfollow", command=self.unfollow_selected).pack(side="left")
+        sched = ttk.Frame(tab, padding=(0, 8, 0, 0))
+        sched.pack(fill="x")
+        ttk.Label(sched, text="Check every").pack(side="left")
+        self.sub_interval = tk.StringVar(value=str(subscriptions.interval_hours()))
+        box = ttk.Combobox(sched, textvariable=self.sub_interval, values=[str(h) for h in subscriptions.INTERVALS],
+                           width=4, state="readonly")
+        box.pack(side="left", padx=6)
+        box.bind("<<ComboboxSelected>>", lambda e: subscriptions.set_interval_hours(int(self.sub_interval.get())))
+        ttk.Label(sched, text="hours").pack(side="left")
+        self.sched_btn = ttk.Button(sched, command=self.toggle_schedule)
+        self.sched_btn.pack(side="left", padx=12)
+        self.sched_label = ttk.Label(sched, style="Muted.TLabel")
+        self.sched_label.pack(side="left")
+        ttk.Label(tab, text="Recently downloaded by subscriptions", padding=(0, 8, 0, 2)).pack(anchor="w")
+        self.recent_tree = ttk.Treeview(tab, columns=("sub", "when"), height=4)
+        self.recent_tree.heading("#0", text="Video")
+        self.recent_tree.heading("sub", text="Channel")
+        self.recent_tree.heading("when", text="When")
+        self.recent_tree.column("#0", width=300)
+        self.recent_tree.column("sub", width=170, anchor="w")
+        self.recent_tree.column("when", width=100, anchor="w")
+        self.recent_tree.pack(fill="both", expand=True)
+        self.recent_tree.bind("<Double-1>", self.reveal_recent)
+        self.checking = False
+        self.refresh_subscriptions()
+
+    def refresh_subscriptions(self):
+        data = subscriptions.load()
+        self.subs_tree.delete(*self.subs_tree.get_children())
+        for s in data["subs"]:
+            when = time.strftime("%b %d, %H:%M", time.localtime(s["last_checked"])) if s["last_checked"] else "never"
+            if s.get("last_error"):
+                when += " (error)"
+            self.subs_tree.insert("", "end", iid=s["id"], text=s["name"],
+                                  values=("On" if s["enabled"] else "Paused", when))
+        self.recent_tree.delete(*self.recent_tree.get_children())
+        for r in data["recent"]:
+            self.recent_tree.insert("", "end", text=r["title"], values=(r["sub"], r["when"]), tags=(r["file"],))
+        on = subscriptions.schedule_installed()
+        self.sched_btn.configure(text="Turn off background checks" if on else "Turn on background checks")
+        self.sched_label.configure(text="On: checks happen hourly even when ytdl is closed." if on
+                                   else "Off: checks only happen while this window is open.")
+
+    def subscription_options(self):
+        browser, cookies = self.current_auth()
+        sub = self.sub_lang.get()
+        return dict(output=self.folder.get(), quality=self.quality.get(), fmt=self.fmt_box.get().split()[0],
+                    naming=ytdl.key_for_label(self.naming.get(), ytdl.NAMING, "title-id"),
+                    folders=ytdl.key_for_label(self.folders.get(), ytdl.FOLDER_RULES, "flat"),
+                    sub_lang=None if sub == "Off" else sub, sub_embed=self.sub_embed.get(),
+                    extras=self.extras.get(), browser=browser, cookies_file=cookies)
+
+    def follow_channel(self):
+        lines = [u.strip() for u in self.urls.get("1.0", "end").splitlines() if u.strip()]
+        if not lines:
+            messagebox.showinfo("ytdl", "Paste a channel or playlist link, then choose Follow channel.")
+            return
+        backfill = simpledialog.askinteger(
+            "Follow channel", "Also download the latest videos right now?\n\n0 = only new uploads from now on",
+            initialvalue=0, minvalue=0, maxvalue=10, parent=self)
+        if backfill is None:
+            return
+        options, url = self.subscription_options(), lines[0]
+        self.set_status("Following…")
+
+        def run():
+            try:
+                sub, first = subscriptions.follow(url, options, backfill)
+                self.events.put(("followed", sub, first))
+            except Exception as e:
+                self.events.put(("sub_error", str(e).replace("ERROR: ", "").splitlines()[0][:200]))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def check_subscriptions(self, force=False):
+        if self.checking:
+            return
+        self.checking = True
+        if force:
+            self.set_status("Checking subscriptions…")
+
+        def run():
+            try:
+                self.events.put(("sub_new", subscriptions.collect_new(force=force), force))
+            except Exception as e:
+                self.events.put(("sub_error", str(e).splitlines()[0][:200]))
+            self.events.put(("sub_done", None))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def start_subscription_tick(self):
+        """While the window is open, look for due subscriptions every few minutes."""
+        if subscriptions.schedule_is_stale():
+            try:
+                subscriptions.install_schedule()  # the app moved: point the background job at its new location
+            except RuntimeError:
+                pass
+        self.tick_subscriptions()
+
+    def tick_subscriptions(self):
+        if subscriptions.due():
+            self.check_subscriptions()
+        self.after(5 * 60 * 1000, self.tick_subscriptions)
+
+    def selected_sub(self):
+        sel = self.subs_tree.selection()
+        return sel[0] if sel else None
+
+    def toggle_subscription(self):
+        sid = self.selected_sub()
+        if sid:
+            enabled = self.subs_tree.set(sid, "state") == "Paused"
+            subscriptions.set_enabled(sid, enabled)
+            self.refresh_subscriptions()
+
+    def unfollow_selected(self):
+        sid = self.selected_sub()
+        if sid and messagebox.askyesno("ytdl", f"Stop following {self.subs_tree.item(sid, 'text')}?\nFiles already downloaded are kept."):
+            subscriptions.unfollow(sid)
+            self.refresh_subscriptions()
+
+    def toggle_schedule(self):
+        try:
+            if subscriptions.schedule_installed():
+                subscriptions.remove_schedule()
+            else:
+                subscriptions.install_schedule()
+        except RuntimeError as e:
+            messagebox.showerror("ytdl", f"Couldn't change background checks.\n\n{e}")
+        self.refresh_subscriptions()
+
+    def reveal_recent(self, _event=None):
+        sel = self.recent_tree.selection()
+        if sel:
+            path = self.recent_tree.item(sel[0], "tags")[0]
+            if os.path.exists(path):
+                self.reveal(path, select=True)
+
+    def enqueue_new_uploads(self, found):
+        count = 0
+        for sub, entries in found:
+            for e in entries:
+                self.enqueue(e["url"], dict(sub["options"], playlist=False), e["title"])
+                count += 1
+        return count
 
     # ---- small helpers ---------------------------------------------------
     def pick_folder(self):
@@ -774,6 +943,21 @@ class App(tk.Tk):
                 elif kind == "failed" and self.tree.exists(a):
                     self.tree.set(a, "status", "Failed")
                     self.tree.item(a, text=f"{self.items[a]['title']}  -  {b.splitlines()[0][:90]}")
+                elif kind == "followed":
+                    n = self.enqueue_new_uploads([(a, b)])
+                    self.set_status(f"Following {a['name']}." + (f" Downloading the latest {n}." if n else
+                                    " New uploads will download automatically."))
+                    self.refresh_subscriptions()
+                elif kind == "sub_new":
+                    n = self.enqueue_new_uploads(a)
+                    if n or b:
+                        self.set_status(f"{n} new upload(s) added to the queue." if n else "No new uploads.")
+                    self.refresh_subscriptions()
+                elif kind == "sub_error":
+                    self.set_status("")
+                    messagebox.showerror("ytdl", f"Subscription problem:\n\n{a}")
+                elif kind == "sub_done":
+                    self.checking = False
                 elif kind == "preview":
                     self.show_preview(a, b)
                 elif kind == "picker":

@@ -9,6 +9,11 @@ Runs entirely on your machine. Used by the GUI (gui.py) and directly:
                        [--naming title-id|title|channel-title|date-title]
                        [--folders flat|channel|site|site-channel] [--limit-rate 1M] [--retry N]
                        [--no-extras] [--info] [-f urls.txt] [--update-engine]
+
+    Channel subscriptions (new uploads download automatically):
+    ytdl.py --subscribe CHANNEL_URL [--backfill 3] [format options]    follow a channel or playlist
+    ytdl.py --subscriptions | --unsubscribe ID | --check-subscriptions
+    ytdl.py --schedule install|remove|status                         check every hour, even when closed
 """
 import argparse
 import hashlib
@@ -20,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threads
 import time
 import urllib.request
 import zipfile
@@ -72,11 +78,12 @@ SPEEDS = {"Unlimited": None, "500 KB/s": 500_000, "1 MB/s": 1_000_000, "2 MB/s":
 # Errors that retrying can't fix.
 PERMANENT_ERRORS = ("unsupported url", "private", "sign in", "log in", "login", "not available", "unavailable",
                     "removed", "copyright", "age-restricted", "members-only", "no video could be found",
-                    "requested format", "does not exist", "not a valid url", "ffmpeg")
+                    "requested format", "does not exist", "not a valid url", "ffmpeg", "no video found",
+                    "google chrome", "geo-restricted")
 THUMBNAIL_FORMATS = {"mp3", "m4a", "opus", "flac", "mp4", "mkv"}  # containers that can hold cover art
 SITE_PATTERN = re.compile(
     r"https?://([\w-]+\.)*(youtube\.com|youtu\.be|instagram\.com|x\.com|twitter\.com|"
-    r"facebook\.com|fb\.watch|threads\.(net|com))/\S+", re.I)
+    r"facebook\.com|fb\.watch|threads\.(net|com)|dailymotion\.com|dai\.ly)/\S+", re.I)
 
 
 class Cancelled(Exception):
@@ -243,6 +250,11 @@ def _auth(opts, browser, cookies_file):
 
 def video_info(url, browser=None, cookies_file=None):
     """Details for a link without downloading it."""
+    if threads.is_threads_url(url):
+        info = threads.extract(url, playlist=True)
+        first = (info.get("entries") or [info])[0]
+        return {"title": info["title"], "channel": info["uploader"], "duration": 0, "heights": [],
+                "thumbnail": first.get("preview_thumbnail")}
     opts = _auth({"quiet": True, "no_warnings": True, "noplaylist": True}, browser, cookies_file)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False, process=False)
@@ -319,7 +331,11 @@ def download_one(url, **kwargs):
     Path(kwargs["output"]).expanduser().mkdir(parents=True, exist_ok=True)
     with yt_dlp.YoutubeDL(build_options(**kwargs)) as ydl:
         try:
-            files = _final_files(ydl.extract_info(url, download=True))
+            if threads.is_threads_url(url):  # yt-dlp can't read Threads, so ytdl finds the video links itself
+                files = _final_files(ydl.process_ie_result(
+                    threads.extract(url, playlist=kwargs.get("playlist", False)), download=True))
+            else:
+                files = _final_files(ydl.extract_info(url, download=True))
         except yt_dlp.utils.DownloadError as e:
             if isinstance(e.exc_info[1] if e.exc_info else None, Cancelled):
                 raise Cancelled() from e
@@ -348,6 +364,9 @@ def download(urls, retries=0, **kwargs):
                 break
             except Cancelled:
                 failures.append((url, "cancelled"))
+                break
+            except threads.ThreadsError as e:
+                failures.append((url, str(e)))
                 break
     return failures
 
@@ -436,6 +455,13 @@ def cli(argv):
     p.add_argument("--retry", type=int, default=0, metavar="N", help="retry failed downloads up to N times")
     p.add_argument("--info", action="store_true", help="show video details and exit")
     p.add_argument("--update-engine", action="store_true", help="fetch the newest yt-dlp and exit")
+    p.add_argument("--subscribe", metavar="URL", help="follow a channel or playlist and download new uploads")
+    p.add_argument("--backfill", type=int, default=0, metavar="N", help="with --subscribe: also download the latest N videos now")
+    p.add_argument("--subscriptions", action="store_true", help="list followed channels")
+    p.add_argument("--unsubscribe", metavar="ID", help="stop following (ID from --subscriptions)")
+    p.add_argument("--check-subscriptions", action="store_true", help="download new uploads from followed channels now")
+    p.add_argument("--schedule", choices=["install", "remove", "status"],
+                   help="run subscription checks every hour in the background, even when ytdl is closed")
     args = p.parse_args(argv)
 
     if args.update_engine:
@@ -445,6 +471,16 @@ def cli(argv):
         except Exception as e:
             sys.exit(f"Update failed: {e}")
 
+    if args.subscribe or args.subscriptions or args.unsubscribe or args.check_subscriptions or args.schedule:
+        import subscriptions
+        options = dict(output=args.output, fmt="mp3" if args.audio else args.format, quality=args.quality,
+                       naming=args.naming, folders=args.folders, sub_lang=args.subs, sub_embed=args.embed_subs,
+                       extras=not args.no_extras, browser=args.browser, cookies_file=args.cookies)
+        try:
+            return subscriptions.cli(args, options)
+        except (ValueError, RuntimeError) as e:
+            sys.exit(str(e))
+
     urls = read_urls(args)
     if not urls:
         p.error("give at least one URL or --file")
@@ -453,7 +489,7 @@ def cli(argv):
         for url in urls:
             try:
                 i = video_info(url, args.browser, args.cookies)
-            except yt_dlp.utils.DownloadError as e:
+            except (yt_dlp.utils.DownloadError, threads.ThreadsError) as e:
                 sys.exit(f"failed: {url}\n  {e}")
             m, s = divmod(i["duration"], 60)
             print(f"Title:     {i['title']}\nChannel:   {i['channel']}\nDuration:  {m}:{s:02d}")

@@ -61,3 +61,13 @@ def duration(ffmpeg, path):
     import re
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", probe(ffmpeg, path))
     return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3])
+
+
+@pytest.fixture(autouse=True)
+def isolated_subscriptions(tmp_path, monkeypatch):
+    """Tests never read or write the real ~/.ytdl or touch the real OS scheduler."""
+    import subscriptions
+    monkeypatch.setattr(subscriptions, "HOME_DIR", tmp_path / "ytdl-home")
+    monkeypatch.setattr(subscriptions, "STORE", tmp_path / "ytdl-home" / "subscriptions.json")
+    monkeypatch.setattr(subscriptions, "LOCK", tmp_path / "ytdl-home" / "subscriptions.lock")
+    monkeypatch.setattr(subscriptions, "schedule_installed", lambda: False)

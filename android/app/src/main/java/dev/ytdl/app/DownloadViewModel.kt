@@ -56,12 +56,15 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var clipboardLink by mutableStateOf<String?>(null)
     var loggedIn by mutableStateOf(setOf<Site>())
     var newRelease by mutableStateOf<ReleaseInfo?>(null)
+    var followBackfill by mutableStateOf(0)
+    var followBusy by mutableStateOf(false)
 
     var theme by mutableStateOf(prefs.getString("theme", "System") ?: "System")
         private set
 
     init {
         DownloadCenter.init(app)
+        Subscriptions.init(app, schedule = true)
         refreshLogins()
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -138,6 +141,15 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         message = ""
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (isThreadsUrl(link)) {
+                    val post = ThreadsResolver.resolve(getApplication(), link)
+                    val bitmap = post.thumbnail?.let {
+                        try { URL(it).openStream().use { s -> BitmapFactory.decodeStream(s) }?.asImageBitmap() } catch (e: Exception) { null }
+                    }
+                    clearPicker()
+                    preview = Preview(post.title.ifBlank { "Threads post ${post.code}" }, post.user, 0, emptyList(), bitmap)
+                    return@launch
+                }
                 if (playlist && loadPlaylist(link)) return@launch
                 val req = YoutubeDLRequest(link)
                 cookieArgs(req)
@@ -182,6 +194,38 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectAll(on: Boolean) = picker.forEach { it.selected = on }
+
+    private fun currentOptions() = Options(format, quality, false, null, null, extras, useLogin && loggedIn.isNotEmpty(),
+        naming, folders, subLang.takeIf { it != "Off" && !audioOnly })
+
+    /** Follow the first link as a channel or playlist. */
+    fun follow() {
+        val link = url.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+        if (link == null) { message = "Paste a channel or playlist link, then tap Follow."; return }
+        if (!DownloadCenter.ready || followBusy) return
+        followBusy = true
+        message = "Following…"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (sub, count) = Subscriptions.follow(link, currentOptions(), followBackfill)
+                url = ""
+                message = "Following ${sub.name}." + if (count > 0) " Downloading the latest $count." else " New uploads download automatically."
+            } catch (e: Exception) {
+                message = "Couldn't follow that link: ${friendly(e)}"
+            } finally {
+                followBusy = false
+            }
+        }
+    }
+
+    fun checkSubscriptionsNow() {
+        if (!DownloadCenter.ready) return
+        message = "Checking subscriptions…"
+        viewModelScope.launch(Dispatchers.IO) {
+            val queued = Subscriptions.checkAll(force = true)
+            message = if (queued > 0) "$queued new upload(s) added to the queue." else "No new uploads."
+        }
+    }
 
     fun pasteClipboardLink() {
         clipboardLink?.let { url = if (url.isBlank()) it else url.trimEnd() + "\n" + it }

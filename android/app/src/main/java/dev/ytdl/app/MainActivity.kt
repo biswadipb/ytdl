@@ -167,7 +167,7 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
         OutlinedTextField(
             value = vm.url, onValueChange = { vm.url = it },
             label = { Text("Video links") },
-            supportingText = { Text("YouTube, Instagram, X/Twitter, Facebook. One per line.") },
+            supportingText = { Text("YouTube, Instagram, X/Twitter, Facebook, Threads, Dailymotion. One per line.") },
             modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4,
         )
         OutlinedButton(onClick = vm::loadPreview, enabled = DownloadCenter.ready && !vm.previewLoading && vm.url.isNotBlank()) {
@@ -237,6 +237,38 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
             }
             TextButton(onClick = DownloadCenter::clearHistory) { Text("Clear history") }
         }
+
+        HorizontalDivider()
+        SectionTitle("Subscriptions")
+        Text(
+            "Paste a channel or playlist link and tap Follow. New uploads then download by themselves, even when the app is closed.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = vm::follow, enabled = DownloadCenter.ready && vm.url.isNotBlank() && !vm.followBusy) {
+                Text(if (vm.followBusy) "Following…" else "Follow channel")
+            }
+            OutlinedButton(onClick = vm::checkSubscriptionsNow, enabled = DownloadCenter.ready && Subscriptions.list.isNotEmpty()) {
+                Text("Check now")
+            }
+        }
+        Text("When following, also download the latest", style = MaterialTheme.typography.bodySmall)
+        ChipRow(listOf("0", "1", "3", "5"), vm.followBackfill.toString()) { vm.followBackfill = it.toInt() }
+        Subscriptions.list.forEach { SubscriptionRow(it) }
+        SectionTitle("Check every (hours)")
+        ChipRow(listOf("1", "3", "6", "12", "24"), Subscriptions.intervalHours.toString()) { Subscriptions.chooseInterval(it.toInt()) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(Subscriptions.onlyCharging, Subscriptions::chooseCharging)
+            Text("Only while charging")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(Subscriptions.onlyNight, Subscriptions::chooseNight)
+            Text("Only at night (11 pm to 7 am)")
+        }
+        Text(
+            "These apply to automatic checks and the downloads they start. Check now and downloads you start yourself are never delayed.",
+            style = MaterialTheme.typography.bodySmall,
+        )
 
         HorizontalDivider()
         SectionTitle("Network")
@@ -376,6 +408,23 @@ private fun PickerCard(vm: DownloadViewModel) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SubscriptionRow(sub: Subscription) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(sub.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val checked = if (sub.lastChecked == 0L) "never checked"
+        else "checked " + android.text.format.DateUtils.getRelativeTimeSpanString(sub.lastChecked)
+        Text(
+            (if (sub.enabled) "On" else "Paused") + ", $checked" + if (sub.lastError.isNotEmpty()) " (error: ${sub.lastError})" else "",
+            style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        Row {
+            TextButton(onClick = { Subscriptions.setEnabled(sub.id, !sub.enabled) }) { Text(if (sub.enabled) "Pause" else "Resume") }
+            TextButton(onClick = { Subscriptions.unfollow(sub.id) }) { Text("Unfollow") }
         }
     }
 }

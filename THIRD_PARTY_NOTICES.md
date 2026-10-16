@@ -11,6 +11,7 @@ ytdl is built on these projects. Their licenses apply to the parts of ytdl that 
 | [Pillow](https://python-pillow.org) | Thumbnails in the desktop preview | MIT-CMU (HPND) |
 | [PyInstaller](https://pyinstaller.org) | Packages the Mac and Windows apps | GPL-2.0 with an exception that allows packaged apps under any license |
 | Tk / Tcl, Python | The desktop window | Tcl/Tk license, PSF license |
-| AndroidX, Jetpack Compose, Material 3, Kotlin coroutines | The Android app | Apache-2.0 |
+| AndroidX (including WorkManager), Jetpack Compose, Material 3, Kotlin coroutines | The Android app | Apache-2.0 |
+| Chrome, Edge, Brave or Chromium (already installed on your computer) | Desktop Threads support runs one in the background; ytdl does not include it | Each browser's own license |
 
 Because the apps include GPL-licensed components, ytdl is released under the GPL-3.0 (see [LICENSE](LICENSE)), and its complete source code is in this repository.

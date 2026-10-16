@@ -46,6 +46,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.youtubedl.library)
     implementation(libs.youtubedl.ffmpeg)
+    implementation(libs.work.runtime)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json) // real org.json for JVM tests; Android supplies its own at runtime
 }

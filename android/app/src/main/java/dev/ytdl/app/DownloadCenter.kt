@@ -65,7 +65,7 @@ private val COVER_FORMATS = setOf("mp3", "flac", "opus", "mkv")
 private val MEDIA_EXTENSIONS = setOf("mp4", "mkv", "webm", "mp3", "m4a", "opus", "wav", "flac", "mov", "ogg", "srt")
 val LINK_PATTERN = Regex(
     "https?://([\\w-]+\\.)*(youtube\\.com|youtu\\.be|instagram\\.com|x\\.com|twitter\\.com|" +
-        "facebook\\.com|fb\\.watch|threads\\.(net|com))/\\S+", RegexOption.IGNORE_CASE
+        "facebook\\.com|fb\\.watch|threads\\.(net|com)|dailymotion\\.com|dai\\.ly)/\\S+", RegexOption.IGNORE_CASE
 )
 
 enum class Status(val label: String) {
@@ -91,7 +91,10 @@ data class Options(
     val clipped get() = clipStart != null || clipEnd != null
 }
 
-class Item(val id: Int, val url: String, val options: Options, presetTitle: String? = null) {
+class Item(
+    val id: Int, val url: String, val options: Options, presetTitle: String? = null,
+    val subId: String? = null, val videoId: String? = null,
+) {
     var title by mutableStateOf(presetTitle ?: url)
     var attempts = 0
     var resultUri: String? = null
@@ -153,6 +156,7 @@ object DownloadCenter {
     fun chooseMobileData(allow: Boolean) {
         allowMobileData = allow
         prefs.edit().putBoolean("mobile_data", allow).apply()
+        Subscriptions.reschedule() // the background job's network requirement follows this switch
     }
 
     fun chooseSpeed(i: Int) { speedIndex = i; prefs.edit().putInt("speed", i).apply() }
@@ -181,14 +185,27 @@ object DownloadCenter {
 
     private fun networkOk() = allowMobileData || isUnmetered()
 
-    fun enqueue(url: String, options: Options, title: String? = null) {
-        items.add(Item(nextId++, url.trim(), options, title))
+    fun enqueue(url: String, options: Options, title: String? = null, subId: String? = null, videoId: String? = null) {
+        items.add(Item(nextId++, url.trim(), options, title, subId, videoId))
         wake()
     }
 
     private fun wake() {
-        ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
+        try {
+            ContextCompat.startForegroundService(app, Intent(app, DownloadService::class.java))
+        } catch (e: Exception) {
+            // Android refuses to start the notification service from the background (a scheduled check);
+            // the download still runs because the check keeps the app alive while it works.
+        }
         startRunner()
+    }
+
+    suspend fun awaitReady() = engineReady.await()
+
+    /** Waits until nothing is queued or downloading, or the time runs out. */
+    suspend fun awaitIdle(timeoutMillis: Long) {
+        val end = System.currentTimeMillis() + timeoutMillis
+        while (activeCount > 0 && System.currentTimeMillis() < end) delay(2000)
     }
 
     fun cancel(item: Item) {
@@ -243,59 +260,77 @@ object DownloadCenter {
         runner?.invokeOnCompletion { if (items.any { it.status == Status.Queued }) startRunner() }
     }
 
+    private fun buildRequest(item: Item, source: String, post: ThreadsPost?, index: Int, total: Int, dir: File): YoutubeDLRequest {
+        val o = item.options
+        val req = YoutubeDLRequest(source)
+        if (!o.playlist) req.addOption("--no-playlist")
+        req.addOption("--windows-filenames")
+        if (o.useLogin) CookieStore.merged(app)?.let { req.addOption("--cookies", it.absolutePath) }
+        SPEEDS[speedIndex].second.takeIf { it > 0 }?.let { req.addOption("--limit-rate", "${it / parallel}") }
+
+        // Threads clips are plain video files, so yt-dlp can't name them from metadata; ytdl names them itself.
+        var (name, folder) = if (post != null) threadsNaming(post, index, total, o.naming, o.folders)
+        else (NAMING.firstOrNull { it.key == o.naming } ?: NAMING[0]).template to
+            (FOLDERS.firstOrNull { it.key == o.folders } ?: FOLDERS[0]).template
+        if (o.clipped) {
+            val start = (o.clipStart ?: 0.0)
+            val end = o.clipEnd?.toString() ?: "inf"
+            req.addOption("--download-sections", "*$start-$end")
+            req.addOption("--force-keyframes-at-cuts")
+            name += " [clip ${start.toInt()}s-${o.clipEnd?.toInt()?.let { "${it}s" } ?: "end"}]"
+        }
+        if (o.audioOnly) {
+            name += " (audio)"
+            req.addOption("-x")
+            req.addOption("--audio-format", o.format)
+        } else {
+            val h = if (o.quality == "best") "" else "[height<=${o.quality}]"
+            req.addOption("-f", "bv*$h+ba/b$h")
+            req.addOption("--merge-output-format", o.format)
+            // Single-file sources (Instagram, X, ...) skip the merge step, so convert them too.
+            req.addOption(if (o.format == "webm") "--recode-video" else "--remux-video", o.format)
+            if (o.subLang != null && post == null) {
+                // Saved as a separate .srt next to the video (embedding needs ffprobe, which isn't bundled).
+                req.addOption("--write-subs")
+                req.addOption("--write-auto-subs")
+                req.addOption("--sub-langs", o.subLang)
+                req.addOption("--convert-subs", "srt")
+            }
+        }
+        if (o.extras) {
+            req.addOption("--embed-metadata")
+            if (o.format in COVER_FORMATS && post == null) {
+                req.addOption("--embed-thumbnail")
+                req.addOption("--convert-thumbnails", "jpg")
+            }
+        }
+        req.addOption("-o", "${dir.absolutePath}/$folder$name.%(ext)s")
+        return req
+    }
+
     private suspend fun run(item: Item) {
         val o = item.options
         item.progress = 0f
         val dir = File(app.cacheDir, "dl/${item.id}-${System.currentTimeMillis()}").also { it.mkdirs() }
         try {
-            val req = YoutubeDLRequest(item.url)
-            if (!o.playlist) req.addOption("--no-playlist")
-            req.addOption("--windows-filenames")
-            if (o.useLogin) CookieStore.merged(app)?.let { req.addOption("--cookies", it.absolutePath) }
-            SPEEDS[speedIndex].second.takeIf { it > 0 }?.let { req.addOption("--limit-rate", "${it / parallel}") }
-
-            var name = (NAMING.firstOrNull { it.key == o.naming } ?: NAMING[0]).template
-            if (o.clipped) {
-                val start = (o.clipStart ?: 0.0)
-                val end = o.clipEnd?.toString() ?: "inf"
-                req.addOption("--download-sections", "*$start-$end")
-                req.addOption("--force-keyframes-at-cuts")
-                name += " [clip ${start.toInt()}s-${o.clipEnd?.toInt()?.let { "${it}s" } ?: "end"}]"
+            val post = if (isThreadsUrl(item.url)) {
+                ThreadsResolver.resolve(app, item.url).also { p -> p.title.take(60).takeIf { it.isNotBlank() }?.let { item.title = it } }
+            } else null
+            val sources = when {
+                post == null -> listOf(item.url)
+                o.playlist -> post.videos
+                else -> post.videos.take(1)
             }
-            if (o.audioOnly) {
-                name += " (audio)"
-                req.addOption("-x")
-                req.addOption("--audio-format", o.format)
-            } else {
-                val h = if (o.quality == "best") "" else "[height<=${o.quality}]"
-                req.addOption("-f", "bv*$h+ba/b$h")
-                req.addOption("--merge-output-format", o.format)
-                // Single-file sources (Instagram, X, ...) skip the merge step, so convert them too.
-                req.addOption(if (o.format == "webm") "--recode-video" else "--remux-video", o.format)
-                if (o.subLang != null) {
-                    // Saved as a separate .srt next to the video (embedding needs ffprobe, which isn't bundled).
-                    req.addOption("--write-subs")
-                    req.addOption("--write-auto-subs")
-                    req.addOption("--sub-langs", o.subLang)
-                    req.addOption("--convert-subs", "srt")
-                }
-            }
-            if (o.extras) {
-                req.addOption("--embed-metadata")
-                if (o.format in COVER_FORMATS) {
-                    req.addOption("--embed-thumbnail")
-                    req.addOption("--convert-thumbnails", "jpg")
-                }
-            }
-            val folder = (FOLDERS.firstOrNull { it.key == o.folders } ?: FOLDERS[0]).template
-            req.addOption("-o", "${dir.absolutePath}/$folder$name.%(ext)s")
-
-            YoutubeDL.getInstance().execute(req, item.processId) { p, _, line ->
-                if (p >= 0f) item.progress = p / 100f
-                Regex("""Destination: (.+)$""").find(line)?.let {
-                    val base = File(it.groupValues[1]).nameWithoutExtension
-                    item.title = base.replace(Regex("""\.f\d+$"""), "")
-                        .replace(Regex(""" \[[\w-]{6,}\]| \(audio\)| \[clip [^\]]*\]"""), "")
+            sources.forEachIndexed { index, source ->
+                if (item.cancelRequested) error("cancelled")
+                val req = buildRequest(item, source, post, index, sources.size, dir)
+                YoutubeDL.getInstance().execute(req, item.processId) { p, _, line ->
+                    if (p >= 0f) item.progress = (index + p / 100f) / sources.size
+                    if (post == null) Regex("""Destination: (.+)$""").find(line)?.let {
+                        val base = File(it.groupValues[1]).nameWithoutExtension
+                        item.title = base.replace(Regex("""\.f\d+$"""), "")
+                            .replace(Regex(""" \[[\w-]{6,}\]| \(audio\)| \[clip [^\]]*\]"""), "")
+                    }
                 }
             }
 
@@ -313,10 +348,12 @@ object DownloadCenter {
             item.resultUri = first?.uri
             item.progress = 1f
             item.status = Status.Done
+            finishedForSubscription(item, true)
             notifyResult(item, "Finished: ${item.title}", first?.uri)
         } catch (e: Exception) {
             if (item.cancelRequested) {
                 item.status = Status.Cancelled
+                finishedForSubscription(item, true) // the user said no to this one; don't offer it again
             } else {
                 val message = e.message?.lineSequence()?.firstOrNull { it.contains("ERROR") }
                     ?.substringAfter("ERROR:")?.trim()
@@ -331,12 +368,19 @@ object DownloadCenter {
                 } else {
                     item.status = Status.Failed
                     item.detail = message
+                    finishedForSubscription(item, false)
                     notifyResult(item, "Failed: ${item.title}", null, message)
                 }
             }
         } finally {
             dir.deleteRecursively()
         }
+    }
+
+    private fun finishedForSubscription(item: Item, ok: Boolean) {
+        val sub = item.subId ?: return
+        val video = item.videoId ?: return
+        Subscriptions.onItemResult(sub, video, ok)
     }
 
     private fun notifyResult(item: Item, title: String, uri: String?, text: String? = null) {

@@ -2,7 +2,7 @@
 
 # ytdl
 
-Download videos from **YouTube, Instagram, X/Twitter and Facebook** to your own device, as
+Download videos from **YouTube, Instagram, X/Twitter, Facebook, Threads and Dailymotion** to your own device, as
 video or audio-only. Everything runs locally: no accounts, no web service. Saved files play offline.
 
 | Site | Status |
@@ -11,7 +11,8 @@ video or audio-only. Everything runs locally: no accounts, no web service. Saved
 | Instagram (posts, reels) | Works; many posts need a login (see below) |
 | X / Twitter | Works for posts that contain video |
 | Facebook (videos, reels) | Works for public videos; others need a login |
-| Threads | **Not supported yet.** The download engine has no Threads support, so links are tried but usually fail |
+| Threads (posts with video) | Works. On desktop ytdl uses Chrome, Edge, Brave or Chromium if one is installed (Edge always is on Windows); on Android it uses the phone's built-in browser engine. See "How Threads works" below |
+| Dailymotion | Works for videos that aren't region-locked |
 
 **Formats:** video as `mp4`, `mkv` or `webm`; audio only as `mp3`, `m4a`, `opus`, `wav` or `flac`.
 
@@ -76,8 +77,15 @@ Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in the
 | Login for private posts | Your browser's login, or a `cookies.txt` file | Sign in inside the app |
 | Copied link detected | Yes | Yes |
 | Engine update | Yes, automatic at launch plus a button | Yes, automatic on Wi-Fi plus a button |
+| Follow channels and playlists, new uploads download automatically | Yes, even when ytdl is closed (a scheduled job) | Yes, even when the app is closed (WorkManager) |
+| Only while charging / only at night | n/a | Yes, for automatic downloads |
 | Tells you when a new ytdl release is out | Yes | Yes |
 | Theme | System / Light / Dark | System / Light / Dark |
+
+**Subscriptions.** Paste a channel or playlist link and choose **Follow channel**. ytdl remembers what's already there, so only *new* uploads download (or also the latest 1 to 10 if you ask). It checks the newest 15 videos, retries failures a few times, and gives up on a video that keeps failing.
+- *Desktop:* the **Subscriptions** tab lists what you follow. The window checks while it's open. Choose **Turn on background checks** to also register an hourly job with your computer (a LaunchAgent on Mac, Task Scheduler on Windows, cron on Linux), so downloads happen even when ytdl is closed. The Mac also shows a notification for each new video. From a terminal: `python main.py --subscribe URL`, `--subscriptions`, `--check-subscriptions`, `--schedule install`.
+- *Android:* the **Subscriptions** section lists them. A background job runs about hourly. **Only while charging** and **Only at night (11 pm to 7 am)** limit when automatic checks run, and the job follows your Wi-Fi-only setting. Check now and downloads you start yourself are never delayed. Android decides the exact moment, so a check can be late, especially in battery saver.
+- Works for YouTube channels and playlists, and for any playlist-style link the download engine can list. Profiles on X, Facebook and Threads can't be listed.
 
 **Playlists.** Tick "All videos in playlist/post" and tap **Preview**: you get a list to tick the videos you want, and each one becomes its own queue item.
 
@@ -127,9 +135,15 @@ The APK is debug-signed so it installs directly.
 Master design: `assets/logo.svg`. To regenerate the PNG, `.ico` and `.icns` files:
 `pip install pillow && python assets/make_icons.py`.
 
+## How Threads works
+
+yt-dlp (the download engine) can't read Threads, and Threads only reveals a post's video files after its JavaScript has run. So ytdl loads the post in a browser in the background, reads the video links from the finished page, and downloads them like any other file. Only the first post on the page counts, so replies and suggested posts are ignored. Tick "All videos in playlist/post" to save every clip of a multi-video post.
+
+This depends on how Threads builds its pages, so it can break when Threads changes. Cover art isn't embedded for Threads clips. If a Threads link fails, check that the post is public and has a video.
+
 ## Tests
 
-Every push and every release runs automated checks: unit tests, real downloads of a generated test video through all eight formats (plus clipping, tags, naming, folders, speed limit, cancel, retry, subtitles and the engine updater), window tests, Android unit tests and lint. A release is only published if all of them pass, and the built Mac and Windows apps are started once before packaging.
+Every push and every release runs automated checks: unit tests, real downloads of a generated test video through all eight formats (plus clipping, tags, naming, folders, speed limit, cancel, retry, subtitles, the engine updater, subscriptions with the background scheduler, and Threads pages), window tests, Android unit tests and lint. A release is only published if all of them pass, and the built Mac and Windows apps are started once before packaging.
 
 ```bash
 cd desktop && pip install -r requirements.txt pytest && python -m pytest -q

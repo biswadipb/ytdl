@@ -99,3 +99,20 @@ def test_playlist_picker_lists_choices_and_queues_only_ticked_ones(app):
     app.add_to_queue()
     rows = app.tree.get_children()
     assert len(rows) == 1 and app.tree.item(rows[0], "text") == "Video 1"
+
+
+def test_subscription_check_queues_new_uploads_in_the_window(app, media_url, media_url_2, monkeypatch):
+    import subscriptions
+    state = {"entries": [{"id": "old", "url": media_url, "title": "Old", "upcoming": False}]}
+    monkeypatch.setattr(subscriptions, "list_entries", lambda *a, **k: ("Chan", list(state["entries"])))
+    options = dict(output=app.folder.get(), fmt="mp3", quality="best", naming="title-id", folders="flat",
+                   sub_lang=None, sub_embed=False, extras=False)
+    subscriptions.follow("https://www.youtube.com/@chan", options)
+    app.refresh_subscriptions()
+    assert app.subs_tree.item(app.subs_tree.get_children()[0], "text") == "Chan"
+    state["entries"].insert(0, {"id": "fresh", "url": media_url_2, "title": "Fresh", "upcoming": False})
+    app.check_subscriptions(force=True)
+    assert pump(app, 30, lambda: len(app.tree.get_children()) == 1)
+    assert pump(app, 60, lambda: statuses(app) == ["Done"])
+    (iid,) = app.tree.get_children()
+    assert app.items[iid]["url"] == media_url_2   # the new upload, not the video that was already there

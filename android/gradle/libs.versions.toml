@@ -8,6 +8,8 @@ lifecycle = "2.10.0"
 coroutines = "1.10.2"
 youtubedl = "0.18.1"
 junit = "4.13.2"
+work = "2.10.0"
+orgJson = "20240303"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -20,6 +22,8 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 youtubedl-library = { group = "io.github.junkfood02.youtubedl-android", name = "library", version.ref = "youtubedl" }
 youtubedl-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version.ref = "youtubedl" }
 
+work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
