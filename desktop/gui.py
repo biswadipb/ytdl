@@ -115,8 +115,11 @@ def apply_theme(root, mode):
     s.map("Accent.TButton", background=[("disabled", p["accent_soft"]), ("active", p["accent_dark"])],
           foreground=[("disabled", "white")])
     s.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["trough"], borderwidth=0)
-    s.configure("TCheckbutton", indicatorbackground=p["field"], indicatorforeground="white")
-    s.map("TCheckbutton", indicatorcolor=[("selected", p["accent"])], background=[("active", p["bg"])])
+    s.configure("TCheckbutton", indicatorbackground=p["field"], indicatorforeground="white",
+                upperbordercolor=p["border"], lowerbordercolor=p["border"])
+    # A ticked box is filled with the accent colour and shows a white tick, so it reads as "on" in light and dark.
+    s.map("TCheckbutton", indicatorbackground=[("selected", p["accent"]), ("pressed", p["accent_dark"])],
+          background=[("active", p["bg"])])
     s.configure("TCombobox", fieldbackground=p["field"], background=p["button"], foreground=p["fg"],
                 arrowcolor=p["fg"], bordercolor=p["border"], selectbackground=p["field"],
                 selectforeground=p["fg"], lightcolor=p["field"], darkcolor=p["field"])
@@ -194,7 +197,9 @@ class App(tk.Tk):
         self.urls_frame = ttk.Frame(main)
         self.urls_frame.pack(fill="x")
         self.urls_frame.columnconfigure(0, weight=1)
-        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads, Dailymotion, TikTok, Reddit, Vimeo, Twitch, SoundCloud (one per line)"
+        ttk.Label(self.urls_frame, wraplength=820, justify="left",
+                  text="Paste links, one per line: YouTube, Instagram, X, Facebook, Threads, TikTok, Reddit, Vimeo, "
+                       "Twitch, SoundCloud, Dailymotion"
                   ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.urls = tk.Text(self.urls_frame, height=3, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
         self.urls.grid(row=1, column=0, sticky="ew")

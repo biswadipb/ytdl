@@ -22,9 +22,15 @@ adb shell am broadcast -a com.android.systemui.demo -e command notifications -e 
 screens() {   # $1 = suffix for the file names
   adb shell am force-stop $PKG
   # Sharing a link opens the first-time "download shared links automatically?" card.
-  adb shell am start -a android.intent.action.SEND -t text/plain \
-    --es android.intent.extra.TEXT "Me at the zoo https://youtu.be/jNQXAC9IVRw" -n $PKG/.ShareActivity
+  adb logcat -c
+  adb shell am start -W -a android.intent.action.SEND -t text/plain \
+    --es android.intent.extra.TEXT "Me at the zoo https://youtu.be/jNQXAC9IVRw" -n $PKG/.ShareActivity || true
   sleep 45                       # the first launch unpacks the download engine
+  echo "--- foreground after launch ($1):"
+  adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -3 || true
+  echo "--- errors logged by the app ($1):"
+  adb logcat -d -t 400 -v brief AndroidRuntime:E ActivityManager:W "*:S" | tail -60 || true
+  adb logcat -d -v brief | grep -E "dev\.ytdl|FATAL" | tail -40 || true
   shot "home-$1"
   for i in 1 2 3 4; do swipe_up; shot "scroll$i-$1"; done
 }

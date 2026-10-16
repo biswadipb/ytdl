@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ytdl: save videos and audio from the sites you use</title>
+<meta name="description" content="Free, open-source apps for Mac, Windows and Android that save videos and audio from YouTube, Instagram, X, Facebook, Threads, TikTok and more. Everything runs on your device.">
+<meta name="theme-color" content="#4F46E5">
+<link rel="icon" href="logo.png">
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f6fb; --text: #17172b; --muted: #55556b; --line: #e3e3ee;
+    --brand: #4F46E5; --brand-dark: #4338CA; --on-brand: #ffffff; --soft: #e8e7fd;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12121a; --surface: #1b1b27; --text: #ededf7; --muted: #a3a3bb; --line: #2c2c3d;
+            --brand: #7b73f5; --brand-dark: #6a62e8; --on-brand: #12121a; --soft: #26254a; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.6;
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--brand); }
+  img { max-width: 100%; height: auto; display: block; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  header.top { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent);
+               backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  header.top .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  nav { margin-left: auto; display: flex; gap: 20px; font-size: 15px; }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a:hover { color: var(--text); }
+  @media (max-width: 640px) { nav a:not(.keep) { display: none; } }
+
+  .hero { padding: 72px 0 40px; text-align: center; }
+  .hero h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
+  .hero p.lead { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 680px; margin: 0 auto 28px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 24px; border-radius: 12px; font-weight: 600;
+         font-size: 17px; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--surface); }
+  .btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+  .btn.primary:hover { background: var(--brand-dark); }
+  .btn:hover { border-color: var(--brand); }
+  .note { color: var(--muted); font-size: 14px; margin-top: 14px; }
+
+  .shots { padding: 24px 0 8px; }
+  .shots .desktop { max-width: 880px; margin: 0 auto; }
+  .shots .desktop img { width: 100%; }
+  .phones { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  .phones img { width: 230px; border-radius: 22px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  .caption { text-align: center; color: var(--muted); font-size: 14px; margin: 8px 0 20px; }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 12px; }
+
+  section { padding: 56px 0; }
+  section h2 { font-size: clamp(26px, 4vw, 36px); margin: 0 0 8px; letter-spacing: -0.01em; }
+  section .sub { color: var(--muted); margin: 0 0 28px; max-width: 700px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .alt { background: var(--surface); border-block: 1px solid var(--line); }
+  .alt .card { background: var(--bg); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; background: var(--soft); color: var(--brand); }
+  .tag.warn { background: #fdecc8; color: #7a4a00; }
+  @media (prefers-color-scheme: dark) { .tag.warn { background: #3a2c10; color: #f5c46b; } }
+  .scroll-x { overflow-x: auto; }
+
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .steps ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+  .steps li { margin-bottom: 6px; }
+  code { background: var(--soft); padding: 1px 6px; border-radius: 6px; font-size: 90%; }
+  details { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  summary { cursor: pointer; font-weight: 600; font-size: 17px; }
+  details p { color: var(--muted); margin: 10px 0 0; }
+
+  footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="logo.png" alt="" width="30" height="30">ytdl</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#sites">Sites</a>
+      <a class="keep" href="#install">Install</a>
+      <a class="keep" href="https://github.com/biswadipb/ytdl">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="hero">
+  <div class="wrap">
+    <h1>Save videos and audio from the sites you use.</h1>
+    <p class="lead">Free, open-source apps for Mac, Windows and Android. Paste a link, pick a format, and the file is yours. Everything runs on your own device, with no account and no web service in between.</p>
+    <div class="cta">
+      <a id="primary" class="btn primary" href="https://github.com/biswadipb/ytdl/releases/latest">Download ytdl</a>
+      <a class="btn" href="#install">All downloads</a>
+    </div>
+    <p class="note" id="version">Mac, Windows and Android</p>
+  </div>
+</div>
+
+<div class="shots">
+  <div class="wrap">
+    <div class="desktop">
+      <img src="screenshots/desktop-main-light.png" alt="The ytdl desktop window: a link pasted in, a video preview, format choices and a download queue" width="1000" height="1000" loading="eager">
+    </div>
+    <p class="caption">The desktop app (shown with demo data)</p>
+    <div class="phones">
+      <img src="screenshots/android-home-light.png" alt="The ytdl Android app asking whether to download shared links automatically" loading="lazy">
+      <img src="screenshots/android-scroll1-light.png" alt="The Android app's format and quality choices" loading="lazy">
+      <img src="screenshots/android-home-dark.png" alt="The Android app in dark mode" loading="lazy">
+    </div>
+    <p class="caption">The Android app, in light and dark</p>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Built for getting the job done</h2>
+    <p class="sub">The things you'd want from a downloader, without ads or sign-ups.</p>
+    <div class="grid">
+      <div class="card"><h3>Video or audio, your format</h3><p>Save video as mp4, mkv or webm, or just the sound as mp3, m4a, opus, wav or flac. Choose the quality, or clip only the part you need.</p></div>
+      <div class="card"><h3>A real queue</h3><p>Add many links, run several downloads at once, set a speed limit, cancel or retry any item. Failed downloads retry themselves when the problem is temporary.</p></div>
+      <div class="card"><h3>Follow channels</h3><p>Follow a YouTube channel or playlist and new uploads download by themselves, even when the app is closed. Choose how often, and on Android, only while charging or at night.</p></div>
+      <div class="card"><h3>Preview first</h3><p>See the title, thumbnail, length and available qualities before you download. For playlists, tick the videos you want.</p></div>
+      <div class="card"><h3>Share and go (Android)</h3><p>Share a link from any app and it downloads straight away with the format you picked once. Channels and playlists always ask first.</p></div>
+      <div class="card"><h3>Looks after your disk</h3><p>Keep subscription downloads for a set time, cap their size, and get warned before space runs out. It only ever deletes what subscriptions downloaded.</p></div>
+      <div class="card"><h3>Private posts</h3><p>Sign in once (inside the app on Android, or through your browser on desktop) for posts that need an account. Your login stays on your device.</p></div>
+      <div class="card"><h3>Open and private</h3><p>Free software under the GPL. No accounts, no tracking, no ads. The only network calls are to the sites you download from and GitHub (for updates and release notices).</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="sites" class="alt">
+  <div class="wrap">
+    <h2>Sites that work</h2>
+    <p class="sub">Powered by yt-dlp, which keeps up with site changes. ytdl updates it for you.</p>
+    <div class="scroll-x"><table>
+      <thead><tr><th>Site</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>YouTube</td><td><span class="tag">Works</span></td><td>Videos, Shorts, playlists and channels (including following).</td></tr>
+        <tr><td>Instagram</td><td><span class="tag">Works</span></td><td>Posts and reels. Many need you to be signed in. Profiles can't be followed reliably.</td></tr>
+        <tr><td>X / Twitter</td><td><span class="tag">Works</span></td><td>Posts that contain video. Profiles can't be followed.</td></tr>
+        <tr><td>Facebook</td><td><span class="tag">Works</span></td><td>Public videos and reels; others need a sign-in.</td></tr>
+        <tr><td>Threads</td><td><span class="tag">Works</span></td><td>Posts with video. Uses a browser already on your computer (Edge, Chrome, Brave) or your phone's built-in one.</td></tr>
+        <tr><td>Dailymotion</td><td><span class="tag">Works</span></td><td>Videos that aren't region-locked.</td></tr>
+        <tr><td>SoundCloud</td><td><span class="tag">Works</span></td><td>Public tracks.</td></tr>
+        <tr><td>Vimeo</td><td><span class="tag warn">Sign-in needed</span></td><td>Vimeo now asks for a login on many videos.</td></tr>
+        <tr><td>TikTok, Reddit, Twitch</td><td><span class="tag warn">Supported</span></td><td>Supported by the download engine; not yet tested end to end, so tell us if one fails.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">Pick your device. The apps aren't code-signed (that costs money each year), so Mac and Windows show a one-time warning. The steps below get past it.</p>
+    <div class="steps">
+      <div class="card">
+        <h3>Mac</h3>
+        <p><a class="btn primary" style="font-size:15px;padding:10px 16px" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-mac-apple-silicon.dmg">Apple silicon (M1 or newer)</a></p>
+        <p style="margin-top:10px"><a href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-mac-intel.dmg">Intel Macs</a></p>
+        <ol>
+          <li>Open the downloaded file and drag <b>ytdl</b> onto <b>Applications</b>.</li>
+          <li>First launch: right-click <b>ytdl</b>, choose <b>Open</b>, then <b>Open</b> again.</li>
+          <li>Not sure which Mac you have? Apple menu, About This Mac: "Chip: Apple…" means Apple silicon.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>Windows</h3>
+        <p><a class="btn primary" style="font-size:15px;padding:10px 16px" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-windows.exe">Download for Windows</a></p>
+        <ol>
+          <li>Double-click <b>ytdl-windows.exe</b>.</li>
+          <li>If "Windows protected your PC" appears, choose <b>More info</b>, then <b>Run anyway</b>.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>Android</h3>
+        <p><a class="btn primary" style="font-size:15px;padding:10px 16px" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-android.apk">Download the APK</a></p>
+        <ol>
+          <li>Open the file on your phone (Android 10 or newer).</li>
+          <li>Allow installs from your browser or Files app when asked, then tap <b>Install</b>.</li>
+          <li>Tip: in any app, <b>Share</b> a link to ytdl to download it.</li>
+        </ol>
+      </div>
+    </div>
+    <p class="note" style="text-align:center">Older versions and release notes are on the <a href="https://github.com/biswadipb/ytdl/releases">releases page</a>.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <details><summary>Is this allowed?</summary><p>Downloading is fine for your own use of content you have the right to save, such as your own uploads, public-domain or Creative Commons videos, and personal backups. Many sites' terms restrict downloading without permission, so please only save what you're allowed to. You are responsible for how you use it.</p></details>
+    <details><summary>Why do I get a security warning when I open it?</summary><p>Apple and Microsoft charge developers a yearly fee to sign apps, and ytdl is a free hobby project. The warning only means the app isn't signed. The full source code is public, and the installers are built automatically on GitHub from that code.</p></details>
+    <details><summary>Does it collect any data?</summary><p>No. There are no accounts, analytics or ads. The apps talk to the sites you download from, to PyPI and GitHub to update the download engine, and to GitHub to check whether a newer ytdl exists.</p></details>
+    <details><summary>A download suddenly stopped working. What do I do?</summary><p>Sites change often. Use <b>Update engine</b> (Android) or restart the desktop app, which updates by itself. If it still fails, <a href="https://github.com/biswadipb/ytdl/issues">open an issue</a> with the link and the message shown.</p></details>
+    <details><summary>Why does Threads need a browser on my computer?</summary><p>Threads only shows a post's video after its page has run, so ytdl uses Edge, Chrome, Brave or Chromium (already installed on most computers) in the background to read it. On Android it uses the phone's own browser engine.</p></details>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>ytdl is free software under the <a href="https://github.com/biswadipb/ytdl/blob/main/LICENSE">GNU GPL v3</a>.</span>
+    <span><a href="https://github.com/biswadipb/ytdl">Source code</a> · <a href="https://github.com/biswadipb/ytdl/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a> · <a href="https://github.com/biswadipb/ytdl/issues">Report a problem</a></span>
+  </div>
+</footer>
+
+<script>
+  // Point the main button at the right file for this device, and show the latest version number.
+  (function () {
+    var base = "https://github.com/biswadipb/ytdl/releases/latest/download/";
+    var ua = navigator.userAgent || "", p = navigator.platform || "";
+    var btn = document.getElementById("primary");
+    var choice = null;
+    if (/Android/i.test(ua)) choice = ["ytdl-android.apk", "Download for Android"];
+    else if (/Win/i.test(p) || /Windows/i.test(ua)) choice = ["ytdl-windows.exe", "Download for Windows"];
+    else if (/Mac/i.test(p) && !/iPhone|iPad/i.test(ua)) choice = ["ytdl-mac-apple-silicon.dmg", "Download for Mac"];
+    if (choice) { btn.href = base + choice[0]; btn.textContent = choice[1]; }
+    fetch("https://api.github.com/repos/biswadipb/ytdl/releases/latest")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.tag_name) document.getElementById("version").textContent =
+          "Latest version " + d.tag_name.replace(/^v/, "") + " · Mac, Windows and Android"
+          + (choice && /Mac/.test(choice[1]) ? " · Intel Mac? See Install below" : "");
+      }).catch(function () {});
+  })();
+</script>
+</body>
+</html>

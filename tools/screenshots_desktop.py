@@ -105,6 +105,7 @@ def shoot(app, name, dark):
 
 app = gui.App()
 app.geometry("940x900+40+40")
+app.folder.set("/Users/you/Downloads/ytdl")
 app.fmt_box.set("mp4 (video)")
 app.urls.insert("end", "https://www.youtube.com/watch?v=jNQXAC9IVRw")
 app.show_preview({"title": "Me at the zoo", "channel": "jawed", "duration": 19, "heights": [144, 240, 360, 720],
