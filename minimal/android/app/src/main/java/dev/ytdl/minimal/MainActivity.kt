@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -278,10 +277,20 @@ private fun SessionRow(d: Download, p: Palette, onOpen: (Download) -> Unit) {
 @Composable
 private fun StatusDot(status: Status, p: Palette) {
     when (status) {
-        Status.Done, Status.Failed, Status.Cancelled -> Box(
-            Modifier.size(16.dp).clip(CircleShape).background(if (status == Status.Done) p.accent else p.bad),
-            contentAlignment = Alignment.Center,
-        ) { Text(if (status == Status.Done) "✓" else "!", color = p.tickFg, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+        Status.Done, Status.Failed, Status.Cancelled -> Canvas(Modifier.size(16.dp)) {
+            val w = size.width
+            drawCircle(if (status == Status.Done) p.accent else p.bad)
+            val mark = Stroke(w * 0.11f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            if (status == Status.Done) {
+                val tick = GPath().apply {
+                    moveTo(w * 0.28f, w * 0.53f); lineTo(w * 0.44f, w * 0.68f); lineTo(w * 0.73f, w * 0.34f)
+                }
+                drawPath(tick, p.tickFg, style = mark)
+            } else {
+                drawLine(p.tickFg, Offset(w * 0.5f, w * 0.27f), Offset(w * 0.5f, w * 0.58f), strokeWidth = w * 0.11f, cap = StrokeCap.Round)
+                drawCircle(p.tickFg, radius = w * 0.07f, center = Offset(w * 0.5f, w * 0.74f))
+            }
+        }
         else -> Canvas(Modifier.size(16.dp)) {
             drawCircle(p.accent, radius = size.width / 2 - 1.5f, style = Stroke(3f))
             drawArc(p.bg, 60f, 100f, false, topLeft = Offset(1.5f, 1.5f), size = Size(size.width - 3f, size.height - 3f), style = Stroke(4f))
