@@ -145,7 +145,18 @@ def test_drawing_a_tiny_or_negative_sized_widget_does_not_crash(win):
 def test_the_image_based_drawing_path_works_on_every_system(win, monkeypatch):
     """Mac draws with vectors; Windows and Linux use anti-aliased images. Make sure that path is exercised here too."""
     monkeypatch.setattr(minimal.sys, "platform", "linux")
-    minimal._cache.clear()
+    win.__dict__.pop("_pill_cache", None)
     win.apply_theme()
     win.update()
-    assert minimal._cache, "expected images to be generated"
+    assert win.__dict__.get("_pill_cache"), "expected images to be generated"
+
+
+def test_a_second_window_does_not_reuse_the_first_windows_images(tmp_path, monkeypatch):
+    """Regression: a shared image cache raised 'image pyimageN doesn't exist' when a new window was created."""
+    monkeypatch.setattr(minimal, "SETTINGS", tmp_path / "s.json")
+    monkeypatch.setattr(minimal.ytdl, "update_engine", lambda: (False, "ok"))
+    monkeypatch.setattr(minimal.sys, "platform", "linux")
+    for _ in range(2):
+        window = minimal.App()
+        window.update()
+        window.destroy()

@@ -80,9 +80,6 @@ def short(text, n=44):
 
 
 # ---- drawing --------------------------------------------------------------------------------------------
-_cache = {}
-
-
 def pill(canvas, x1, y1, x2, y2, r, fill, outline="", width=1, tag="bg"):
     """A rounded rectangle. Vector on Mac (crisp on Retina); anti-aliased image elsewhere."""
     if x2 - x1 < 2 or y2 - y1 < 2:      # the widget hasn't been given its real size yet
@@ -94,7 +91,8 @@ def pill(canvas, x1, y1, x2, y2, r, fill, outline="", width=1, tag="bg"):
         return canvas.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=width, tags=tag)
     w, h = int(x2 - x1), int(y2 - y1)
     key = (w, h, r, fill, outline, width)
-    if key not in _cache:
+    cache = canvas._root().__dict__.setdefault("_pill_cache", {})   # images belong to one window, so cache per window
+    if key not in cache:
         s = 4
         img = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
@@ -104,8 +102,8 @@ def pill(canvas, x1, y1, x2, y2, r, fill, outline="", width=1, tag="bg"):
             d.rounded_rectangle((i, i, w * s - 1 - i, h * s - 1 - i), radius=max(0, r - width) * s, fill=fill)
         else:
             d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=r * s, fill=fill)
-        _cache[key] = ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS))
-    return canvas.create_image(x1, y1, image=_cache[key], anchor="nw", tags=tag)
+        cache[key] = ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS), master=canvas)
+    return canvas.create_image(x1, y1, image=cache[key], anchor="nw", tags=tag)
 
 
 class Surface(tk.Canvas):
@@ -605,18 +603,21 @@ class App(tk.Tk):
         try:
             while True:
                 kind, job, *rest = self.events.get_nowait()
-                row = self.rows.get(job["id"])
-                if kind == "status":
-                    self.set_status(job, rest[0], rest[1])
-                elif kind == "title":
-                    job["title"] = rest[0]
-                    row and row.refresh()
-                elif kind == "progress":
-                    job["progress"] = rest[0]
-                    row and row.refresh()
-                elif kind == "done":
-                    job["files"], job["progress"] = rest[0], 1.0
-                    self.set_status(job, "done")
+                try:
+                    row = self.rows.get(job["id"])
+                    if kind == "status":
+                        self.set_status(job, rest[0], rest[1])
+                    elif kind == "title":
+                        job["title"] = rest[0]
+                        row and row.refresh()
+                    elif kind == "progress":
+                        job["progress"] = rest[0]
+                        row and row.refresh()
+                    elif kind == "done":
+                        job["files"], job["progress"] = rest[0], 1.0
+                        self.set_status(job, "done")
+                except tk.TclError:
+                    pass          # one bad redraw must never stop the progress updates
         except queue.Empty:
             pass
         self.after(150, self.poll)
