@@ -5,7 +5,9 @@ Downloads from YouTube, Instagram, X/Twitter, Facebook and other sites yt-dlp su
 Runs entirely on your machine. Used by the GUI (gui.py) and directly:
 
     python ytdl.py URL [-F mp4|mkv|webm|mp3|m4a|opus|wav|flac] [-q 720] [-o FOLDER]
-                       [-c 1:30-2:45] [-p] [-s en] [-b chrome | --cookies cookies.txt]
+                       [-c 1:30-2:45] [-p] [-s en [--embed-subs]] [-b chrome | --cookies cookies.txt]
+                       [--naming title-id|title|channel-title|date-title]
+                       [--folders flat|channel|site|site-channel] [--limit-rate 1M] [--retry N]
                        [--no-extras] [--info] [-f urls.txt] [--update-engine]
 """
 import argparse
@@ -15,8 +17,10 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -50,6 +54,25 @@ VIDEO_FORMATS = ["mp4", "mkv", "webm"]
 AUDIO_FORMATS = ["mp3", "m4a", "opus", "wav", "flac"]
 FORMATS = VIDEO_FORMATS + AUDIO_FORMATS
 BROWSERS = ["chrome", "firefox", "safari", "edge", "brave"]
+SUB_LANGS = ["en", "es", "fr", "de", "pt", "it", "ru", "ja", "ko", "zh", "ar", "hi", "bn", "tr", "nl", "pl", "id"]
+NAMING = {  # key: (label, yt-dlp template without extension)
+    "title-id": ("Title [id]", "%(title).150B [%(id)s]"),
+    "title": ("Title only", "%(title).150B"),
+    "channel-title": ("Channel - Title", "%(uploader,channel|Unknown)s - %(title).120B"),
+    "date-title": ("Date - Title", "%(upload_date>%Y-%m-%d|undated)s - %(title).120B"),
+}
+FOLDER_RULES = {  # key: (label, sub-folder template)
+    "flat": ("One folder", ""),
+    "channel": ("Folder per channel", "%(uploader,channel|Unknown)s/"),
+    "site": ("Folder per site", "%(extractor_key)s/"),
+    "site-channel": ("Site, then channel", "%(extractor_key)s/%(uploader,channel|Unknown)s/"),
+}
+SPEEDS = {"Unlimited": None, "500 KB/s": 500_000, "1 MB/s": 1_000_000, "2 MB/s": 2_000_000,
+          "5 MB/s": 5_000_000, "10 MB/s": 10_000_000}
+# Errors that retrying can't fix.
+PERMANENT_ERRORS = ("unsupported url", "private", "sign in", "log in", "login", "not available", "unavailable",
+                    "removed", "copyright", "age-restricted", "members-only", "no video could be found",
+                    "requested format", "does not exist", "not a valid url", "ffmpeg")
 THUMBNAIL_FORMATS = {"mp3", "m4a", "opus", "flac", "mp4", "mkv"}  # containers that can hold cover art
 SITE_PATTERN = re.compile(
     r"https?://([\w-]+\.)*(youtube\.com|youtu\.be|instagram\.com|x\.com|twitter\.com|"
@@ -124,21 +147,38 @@ def _label(seconds):
     return "" if seconds is None else f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
 
 
-def build_options(output, fmt="mp4", quality="best", playlist=False, subs=None,
-                  browser=None, cookies_file=None, clip=None, extras=True,
-                  hooks=(), quiet=False):
-    """clip: (start, end) seconds or None. extras: embed cover art and tags."""
+def label_for(key, table):
+    return table[key][0]
+
+
+def key_for_label(label, table, default):
+    return next((k for k, v in table.items() if v[0] == label), default)
+
+
+def is_transient(message):
+    """True when an error is worth retrying (network hiccup, rate limit, server error)."""
+    m = message.lower()
+    return not any(p in m for p in PERMANENT_ERRORS)
+
+
+def build_options(output, fmt="mp4", quality="best", playlist=False, sub_lang=None, sub_embed=False,
+                  browser=None, cookies_file=None, clip=None, extras=True, naming="title-id",
+                  folders="flat", ratelimit=None, hooks=(), quiet=False):
+    """clip: (start, end) seconds or None. extras: embed cover art and tags.
+
+    ratelimit: bytes per second or None. sub_lang: subtitle language code or None.
+    """
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format: {fmt}")
     ffmpeg = find_ffmpeg()
-    name = "%(title).150B [%(id)s]"
+    name = NAMING[naming][1]
     if clip:
         name += f" [clip {_label(clip[0])}-{_label(clip[1]) or 'end'}]"
     if fmt in AUDIO_FORMATS:
         # Suffix avoids clobbering a same-named video (audio extraction deletes its source file).
         name += " (audio)"
     opts = {
-        "outtmpl": str(Path(output).expanduser() / (name + ".%(ext)s")),
+        "outtmpl": str(Path(output).expanduser() / (FOLDER_RULES[folders][1] + name + ".%(ext)s")),
         "noplaylist": not playlist,
         "windowsfilenames": True,
         "continuedl": True,
@@ -148,6 +188,8 @@ def build_options(output, fmt="mp4", quality="best", playlist=False, subs=None,
         "no_warnings": True,
         "progress_hooks": list(hooks),
     }
+    if ratelimit:
+        opts["ratelimit"] = ratelimit
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
     if cookies_file:
@@ -182,10 +224,12 @@ def build_options(output, fmt="mp4", quality="best", playlist=False, subs=None,
             opts["writethumbnail"] = True
             post.insert(0, {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"})
             post.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+    if sub_lang and fmt in VIDEO_FORMATS:
+        opts.update(writesubtitles=True, writeautomaticsub=True, subtitleslangs=[sub_lang],
+                    subtitlesformat="srt/best")
+        post.insert(0, {"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"})
     if post:
         opts["postprocessors"] = post
-    if subs:
-        opts.update(writesubtitles=True, writeautomaticsub=True, subtitleslangs=[subs])
     return opts
 
 
@@ -217,6 +261,21 @@ def video_info(url, browser=None, cookies_file=None):
     }
 
 
+def playlist_entries(url, browser=None, cookies_file=None):
+    """Videos inside a playlist/post as [{title, url, duration}], or [] when the link is a single video."""
+    opts = _auth({"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}, browser, cookies_file)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if info.get("_type") != "playlist":
+        return []
+    out = []
+    for e in info.get("entries") or []:
+        link = (e or {}).get("url") or (e or {}).get("webpage_url")
+        if link and link.startswith("http"):
+            out.append({"title": e.get("title") or link, "url": link, "duration": int(e.get("duration") or 0)})
+    return out
+
+
 def _final_files(info):
     files = []
     for entry in info.get("entries") or [info]:
@@ -226,28 +285,70 @@ def _final_files(info):
     return files
 
 
+SUBTITLE_CODEC = {"mp4": "mov_text", "mkv": "srt", "webm": "webvtt"}
+
+
+def embed_subtitles(video, fmt):
+    """Mux a downloaded .srt next to `video` into it, then delete the .srt.
+
+    Done with ffmpeg directly because yt-dlp's own embedder needs ffprobe, which isn't bundled.
+    """
+    video = Path(video)
+    srts = sorted(video.parent.glob(glob_escape(video.stem) + ".*.srt"))
+    ffmpeg = find_ffmpeg()
+    if not srts or not ffmpeg or fmt not in SUBTITLE_CODEC:
+        return
+    tmp = video.with_name(video.stem + ".embedding" + video.suffix)
+    cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", str(video), "-i", str(srts[0]),
+           "-map", "0", "-map", "1", "-c", "copy", "-c:s", SUBTITLE_CODEC[fmt], str(tmp)]
+    flags = 0x08000000 if sys.platform == "win32" else 0  # no console window flash
+    result = subprocess.run(cmd, capture_output=True, creationflags=flags)
+    if result.returncode == 0:
+        tmp.replace(video)
+        srts[0].unlink()
+    else:
+        tmp.unlink(missing_ok=True)  # keep the separate .srt rather than failing the download
+
+
+def glob_escape(text):
+    return re.sub(r"([\[\]*?])", r"[\1]", text)
+
+
 def download_one(url, **kwargs):
     """Download one link. Returns the saved file paths; raises DownloadError or Cancelled."""
     Path(kwargs["output"]).expanduser().mkdir(parents=True, exist_ok=True)
     with yt_dlp.YoutubeDL(build_options(**kwargs)) as ydl:
         try:
-            return _final_files(ydl.extract_info(url, download=True))
+            files = _final_files(ydl.extract_info(url, download=True))
         except yt_dlp.utils.DownloadError as e:
             if isinstance(e.exc_info[1] if e.exc_info else None, Cancelled):
                 raise Cancelled() from e
             raise
+    if kwargs.get("sub_lang") and kwargs.get("sub_embed") and kwargs.get("fmt", "mp4") in VIDEO_FORMATS:
+        for f in files:
+            embed_subtitles(f, kwargs.get("fmt", "mp4"))
+    return files
 
 
-def download(urls, **kwargs):
-    """Download each URL. Returns a list of (url, error_message) for failures."""
+def download(urls, retries=0, **kwargs):
+    """Download each URL, retrying temporary failures. Returns a list of (url, error_message)."""
     failures = []
     for url in urls:
-        try:
-            download_one(url, **kwargs)
-        except yt_dlp.utils.DownloadError as e:
-            failures.append((url, str(e)))
-        except Cancelled:
-            failures.append((url, "cancelled"))
+        attempt = 0
+        while True:
+            try:
+                download_one(url, **kwargs)
+                break
+            except yt_dlp.utils.DownloadError as e:
+                if attempt < retries and is_transient(str(e)):
+                    attempt += 1
+                    time.sleep(2 * attempt)
+                    continue
+                failures.append((url, str(e)))
+                break
+            except Cancelled:
+                failures.append((url, "cancelled"))
+                break
     return failures
 
 
@@ -327,7 +428,12 @@ def cli(argv):
     p.add_argument("-b", "--browser", choices=BROWSERS,
                    help="use your login from this browser (for private/age-gated/login-only posts)")
     p.add_argument("--cookies", metavar="FILE", help="use a cookies.txt file for login-only posts")
-    p.add_argument("-s", "--subs", metavar="LANG", help="also fetch subtitles, e.g. en")
+    p.add_argument("-s", "--subs", metavar="LANG", help="also fetch subtitles (video only), e.g. en")
+    p.add_argument("--embed-subs", action="store_true", help="put subtitles inside the video instead of a .srt file")
+    p.add_argument("--naming", default="title-id", choices=list(NAMING), help="file name style")
+    p.add_argument("--folders", default="flat", choices=list(FOLDER_RULES), help="how to organize into folders")
+    p.add_argument("--limit-rate", metavar="RATE", help="speed limit, e.g. 500K or 2M")
+    p.add_argument("--retry", type=int, default=0, metavar="N", help="retry failed downloads up to N times")
     p.add_argument("--info", action="store_true", help="show video details and exit")
     p.add_argument("--update-engine", action="store_true", help="fetch the newest yt-dlp and exit")
     args = p.parse_args(argv)
@@ -355,10 +461,13 @@ def cli(argv):
         return 0
 
     try:
-        failures = download(urls, output=args.output, fmt="mp3" if args.audio else args.format,
-                            quality=args.quality, playlist=args.playlist, subs=args.subs,
-                            browser=args.browser, cookies_file=args.cookies,
-                            clip=parse_clip(args.clip), extras=not args.no_extras)
+        rate = yt_dlp.utils.parse_bytes(args.limit_rate) if args.limit_rate else None
+        failures = download(urls, retries=args.retry, output=args.output,
+                            fmt="mp3" if args.audio else args.format,
+                            quality=args.quality, playlist=args.playlist, sub_lang=args.subs,
+                            sub_embed=args.embed_subs, browser=args.browser, cookies_file=args.cookies,
+                            clip=parse_clip(args.clip), extras=not args.no_extras, naming=args.naming,
+                            folders=args.folders, ratelimit=rate)
     except (RuntimeError, ValueError) as e:
         sys.exit(str(e))
     for url, err in failures:

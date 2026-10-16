@@ -25,8 +25,7 @@ Only download videos you have the right to save. YouTube's Terms of Service rest
 
 ## Install (no coding needed)
 
-Open the **Releases** page of this repo and download the file for your device.
-(The repo is private, so sign in to GitHub first.)
+Open the [**Releases** page](https://github.com/biswadipb/ytdl/releases/latest) and download the file for your device.
 
 ### Mac
 1. Download the file for your Mac: `ytdl-mac-apple-silicon.dmg` (M1/M2/M3/M4) or `ytdl-mac-intel.dmg` (older Intel).
@@ -63,15 +62,30 @@ Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in the
 | Feature | Desktop | Android |
 |---|---|---|
 | Preview before downloading | Yes | Yes |
+| Pick videos from a playlist | Yes | Yes |
 | Download queue, cancel, history | Yes | Yes |
+| Retry failed items, plus automatic retries | Yes | Yes |
+| Several downloads at once, speed limit | Yes | Yes |
+| File names and folders (per channel, per site) | Yes | Yes |
 | Clip a section | Yes | Yes |
+| Subtitles | Separate `.srt` or inside the video | Separate `.srt` |
 | Cover art and tags embedded | mp3, m4a, opus, flac, mp4, mkv | mp3, opus, flac, mkv (tags for all) |
 | Keeps going in the background | Downloads run while the window is open; closing asks first | Yes: a notification shows progress even with the app closed |
+| "Finished" notification you can tap to open the file | n/a | Yes |
 | Wi-Fi only / allow mobile data | n/a | Switch in the Network section (default Wi-Fi only) |
 | Login for private posts | Your browser's login, or a `cookies.txt` file | Sign in inside the app |
 | Copied link detected | Yes | Yes |
 | Engine update | Yes, automatic at launch plus a button | Yes, automatic on Wi-Fi plus a button |
+| Tells you when a new ytdl release is out | Yes | Yes |
 | Theme | System / Light / Dark | System / Light / Dark |
+
+**Playlists.** Tick "All videos in playlist/post" and tap **Preview**: you get a list to tick the videos you want, and each one becomes its own queue item.
+
+**Speed and parallel downloads.** Under *More options* (desktop) or *Network* (Android) you can cap speed and run up to three downloads at once. The speed limit is shared between downloads that run together.
+
+**Retries.** Failed items get a **Retry** button. Temporary problems such as a dropped connection are retried automatically (default twice); permanent ones such as private or removed videos are not.
+
+**New versions.** On launch ytdl asks GitHub whether a newer release exists and shows a banner with a download link. It only tells you; it never installs anything by itself. Running from source skips the check.
 
 **Login for private posts.**
 Instagram, Facebook, Threads and some X posts refuse anonymous downloads.
@@ -112,6 +126,18 @@ The APK is debug-signed so it installs directly.
 
 Master design: `assets/logo.svg`. To regenerate the PNG, `.ico` and `.icns` files:
 `pip install pillow && python assets/make_icons.py`.
+
+## Tests
+
+Every push and every release runs automated checks: unit tests, real downloads of a generated test video through all eight formats (plus clipping, tags, naming, folders, speed limit, cancel, retry, subtitles and the engine updater), window tests, Android unit tests and lint. A release is only published if all of them pass, and the built Mac and Windows apps are started once before packaging.
+
+```bash
+cd desktop && pip install -r requirements.txt pytest && python -m pytest -q
+```
+
+## Third-party software
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## How it works
 

@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
   desktop:
+    needs: tests
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +27,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Stamp the release version into the app
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "__version__ = \"${GITHUB_REF_NAME#v}\"" > desktop/version.py
       - name: Install dependencies
         working-directory: desktop
         run: pip install -r requirements.txt -r requirements-build.txt
@@ -38,6 +46,15 @@ jobs:
           pyinstaller --noconfirm --windowed $EXTRA --name ytdl --icon "$ICON" \
             --add-data "../assets/icon.png${SEP}assets" \
             --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
+      - name: Check the built app starts (Mac)
+        if: runner.os == 'macOS'
+        run: desktop/dist/ytdl.app/Contents/MacOS/ytdl --help > /dev/null
+      - name: Check the built app starts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath desktop\dist\ytdl.exe -ArgumentList '--help' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "ytdl.exe --help exited with code $($p.ExitCode)" }
       - name: Package (Mac)
         if: runner.os == 'macOS'
         working-directory: desktop/dist
@@ -62,6 +79,7 @@ jobs:
             ${{ matrix.name }}.exe
 
   android:
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +92,13 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug
+          ARGS=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MAJOR MINOR PATCH <<< "$V"
+            ARGS="-PappVersion=$V -PappVersionCode=$((MAJOR * 10000 + MINOR * 100 + PATCH))"
+          fi
+          ./gradlew --no-daemon :app:assembleDebug $ARGS
       - name: Name the APK
         run: cp android/app/build/outputs/apk/debug/app-universal-debug.apk ytdl-android.apk
       - uses: actions/upload-artifact@v4

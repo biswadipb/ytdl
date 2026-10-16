@@ -16,6 +16,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -136,6 +137,20 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
     ) {
         Text("ytdl", style = MaterialTheme.typography.headlineMedium)
 
+        vm.newRelease?.let { r ->
+            val context = LocalContext.current
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("ytdl ${r.version} is available.", Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Button(onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(r.url)))
+                    }) { Text("Get it") }
+                    TextButton(onClick = { vm.newRelease = null }) { Text("Later") }
+                }
+            }
+        }
+
         vm.clipboardLink?.let { link ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -159,6 +174,7 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
             Text(if (vm.previewLoading) "Loading preview…" else "Preview")
         }
         vm.preview?.let { PreviewCard(it) }
+        if (vm.picker.isNotEmpty()) PickerCard(vm)
 
         SectionTitle("Video format")
         ChipRow(VIDEO_FORMATS, vm.format) { vm.format = it }
@@ -181,8 +197,17 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
                 placeholder = { Text("2:45") }, modifier = Modifier.weight(1f))
         }
 
-        CheckRow("All videos in playlist/post", vm.playlist) { vm.playlist = it }
+        CheckRow("All videos in playlist/post (Preview lists them so you can pick)", vm.playlist) { vm.playlist = it }
         CheckRow("Embed cover art and tags", vm.extras) { vm.extras = it }
+
+        if (!vm.audioOnly) {
+            SectionTitle("Subtitles (saved as a separate .srt file)")
+            ScrollChips(SUB_LANGS, vm.subLang, { it }, vm::chooseSubLang)
+        }
+        SectionTitle("File names")
+        ScrollChips(NAMING.map { it.key }, vm.naming, { k -> NAMING.first { it.key == k }.label }, vm::chooseNaming)
+        SectionTitle("Folders")
+        ScrollChips(FOLDERS.map { it.key }, vm.folders, { k -> FOLDERS.first { it.key == k }.label }, vm::chooseFolders)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = vm::addToQueue, enabled = DownloadCenter.ready) { Text("Add to queue") }
@@ -226,6 +251,14 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
                 )
             }
         }
+
+        SectionTitle("Download speed limit")
+        ScrollChips(SPEEDS.indices.map { it.toString() }, DownloadCenter.speedIndex.toString(),
+            { SPEEDS[it.toInt()].first }) { DownloadCenter.chooseSpeed(it.toInt()) }
+        SectionTitle("Downloads at once (the speed limit is shared)")
+        ChipRow(listOf("1", "2", "3"), DownloadCenter.parallel.toString()) { DownloadCenter.chooseParallel(it.toInt()) }
+        SectionTitle("Retry failed downloads automatically")
+        ChipRow(listOf("0", "1", "2", "3"), DownloadCenter.autoRetry.toString()) { DownloadCenter.chooseRetries(it.toInt()) }
 
         SectionTitle("Login for private posts")
         Text(
@@ -302,15 +335,47 @@ private fun QueueRow(item: Item) {
             Column(Modifier.weight(1f)) {
                 Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    item.status.label + if (item.status == Status.Failed && item.detail.isNotEmpty()) ": ${item.detail}" else "",
+                    if (item.detail.isNotEmpty() && (item.status == Status.Failed || item.status == Status.Retrying))
+                        (if (item.status == Status.Failed) "Failed: " else "") + item.detail
+                    else item.status.label,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
             }
             if (item.status.active) TextButton(onClick = { DownloadCenter.cancel(item) }) { Text("Cancel") }
+            else if (item.status == Status.Failed || item.status == Status.Cancelled)
+                TextButton(onClick = { DownloadCenter.retry(item) }) { Text("Retry") }
         }
         if (item.status == Status.Downloading) {
             LinearProgressIndicator(progress = { item.progress }, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun ScrollChips(keys: List<String>, selected: String, label: (String) -> String, onSelect: (String) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        keys.forEach { k -> FilterChip(selected == k, { onSelect(k) }, label = { Text(label(k)) }) }
+    }
+}
+
+@Composable
+private fun PickerCard(vm: DownloadViewModel) {
+    Card {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("${vm.picker.size} videos found. Tick the ones you want.", style = MaterialTheme.typography.titleSmall)
+            Row {
+                TextButton(onClick = { vm.selectAll(true) }) { Text("Select all") }
+                TextButton(onClick = { vm.selectAll(false) }) { Text("Select none") }
+            }
+            Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                vm.picker.forEach { e ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(e.selected, { e.selected = it })
+                        Text(e.title, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
     }
 }

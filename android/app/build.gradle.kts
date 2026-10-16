@@ -11,8 +11,8 @@ android {
         applicationId = "dev.ytdl.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (findProperty("appVersionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("appVersion") as String?) ?: "dev"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
@@ -46,4 +46,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.youtubedl.library)
     implementation(libs.youtubedl.ffmpeg)
+
+    testImplementation(libs.junit)
 }

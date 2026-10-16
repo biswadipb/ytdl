@@ -11,7 +11,10 @@ import tkinter as tk
 import urllib.request
 from tkinter import filedialog, messagebox, ttk
 
+import updates
+import webbrowser
 import ytdl
+from version import __version__
 
 try:
     from PIL import Image, ImageTk
@@ -162,6 +165,11 @@ class App(tk.Tk):
         self.next_id = 1
         self.last_clip = None
         self.preview_image = None
+        self.picker_url = None
+        self.picker_entries = []
+        self.cfg = dict(speed=None, parallel=2, retries=2)  # read by worker threads
+        self.running = 0
+        self.cv = threading.Condition()
 
         main = ttk.Frame(self, padding=12)
         main.pack(fill="both", expand=True)
@@ -172,6 +180,13 @@ class App(tk.Tk):
         self.clip_label.pack(side="left", fill="x", expand=True)
         ttk.Button(self.clip_bar, text="Dismiss", command=self.dismiss_clip).pack(side="right", padx=(6, 0))
         ttk.Button(self.clip_bar, text="Paste link", command=self.paste_clip).pack(side="right")
+
+        self.update_bar = ttk.Frame(main, style="Banner.TFrame", padding=(10, 6))
+        self.update_label = ttk.Label(self.update_bar, style="Banner.TLabel")
+        self.update_label.pack(side="left", fill="x", expand=True)
+        ttk.Button(self.update_bar, text="Later", command=self.update_bar.pack_forget).pack(side="right", padx=(6, 0))
+        self.update_btn = ttk.Button(self.update_bar, text="Download")
+        self.update_btn.pack(side="right")
 
         self.urls_frame = ttk.Frame(main)
         self.urls_frame.pack(fill="x")
@@ -189,7 +204,24 @@ class App(tk.Tk):
         self.preview_text = ttk.Label(self.preview_frame, justify="left", wraplength=480)
         self.preview_text.pack(side="left", anchor="n")
 
+        self.picker = ttk.Frame(main, padding=(0, 8, 0, 0))
+        self.picker_title = ttk.Label(self.picker)
+        self.picker_title.pack(anchor="w")
+        pick_body = ttk.Frame(self.picker)
+        pick_body.pack(fill="x", pady=(4, 0))
+        self.picker_list = tk.Listbox(pick_body, selectmode="extended", height=7, activestyle="none",
+                                      relief="solid", borderwidth=1, highlightthickness=0, exportselection=False)
+        scroll = ttk.Scrollbar(pick_body, command=self.picker_list.yview)
+        self.picker_list.configure(yscrollcommand=scroll.set)
+        self.picker_list.pack(side="left", fill="x", expand=True)
+        scroll.pack(side="left", fill="y")
+        pick_btns = ttk.Frame(self.picker)
+        pick_btns.pack(fill="x", pady=(4, 0))
+        ttk.Button(pick_btns, text="Select all", command=lambda: self.picker_list.select_set(0, "end")).pack(side="left")
+        ttk.Button(pick_btns, text="Select none", command=lambda: self.picker_list.select_clear(0, "end")).pack(side="left", padx=6)
+
         opts = ttk.Frame(main, padding=(0, 10, 0, 0))
+        self.opts_frame = self.more_anchor = opts
         opts.pack(fill="x")
         opts.columnconfigure(1, weight=1)
         ttk.Label(opts, text="Save to").grid(row=0, column=0, sticky="w", pady=3)
@@ -239,9 +271,52 @@ class App(tk.Tk):
         theme_box.bind("<<ComboboxSelected>>", self.on_theme_change)
         self.update_cookies_label()
 
+        self.more = ttk.Frame(main, padding=(0, 4, 0, 0))
+        mr1 = ttk.Frame(self.more)
+        mr1.pack(anchor="w", pady=3)
+        ttk.Label(mr1, text="Name files").pack(side="left")
+        self.naming = tk.StringVar(value=ytdl.label_for(self.settings.get("naming", "title-id"), ytdl.NAMING))
+        ttk.Combobox(mr1, textvariable=self.naming, values=[v[0] for v in ytdl.NAMING.values()], width=16,
+                     state="readonly").pack(side="left", padx=(6, 16))
+        ttk.Label(mr1, text="Folders").pack(side="left")
+        self.folders = tk.StringVar(value=ytdl.label_for(self.settings.get("folders", "flat"), ytdl.FOLDER_RULES))
+        ttk.Combobox(mr1, textvariable=self.folders, values=[v[0] for v in ytdl.FOLDER_RULES.values()], width=18,
+                     state="readonly").pack(side="left", padx=6)
+        mr2 = ttk.Frame(self.more)
+        mr2.pack(anchor="w", pady=3)
+        ttk.Label(mr2, text="Subtitles").pack(side="left")
+        self.sub_lang = tk.StringVar(value=self.settings.get("sub_lang", "Off"))
+        ttk.Combobox(mr2, textvariable=self.sub_lang, values=["Off"] + ytdl.SUB_LANGS, width=6,
+                     state="readonly").pack(side="left", padx=(6, 16))
+        self.sub_embed = tk.BooleanVar(value=self.settings.get("sub_embed", False))
+        ttk.Checkbutton(mr2, text="Put inside the video (otherwise a separate .srt file)",
+                        variable=self.sub_embed).pack(side="left")
+        ttk.Label(mr2, text="  (video formats only)", style="Muted.TLabel").pack(side="left")
+        mr3 = ttk.Frame(self.more)
+        mr3.pack(anchor="w", pady=3)
+        ttk.Label(mr3, text="Speed limit").pack(side="left")
+        self.speed = tk.StringVar(value=self.settings.get("speed", "Unlimited"))
+        speed_box = ttk.Combobox(mr3, textvariable=self.speed, values=list(ytdl.SPEEDS), width=10, state="readonly")
+        speed_box.pack(side="left", padx=(6, 16))
+        ttk.Label(mr3, text="At once").pack(side="left")
+        self.parallel = tk.StringVar(value=str(self.settings.get("parallel", 2)))
+        par_box = ttk.Combobox(mr3, textvariable=self.parallel, values=["1", "2", "3"], width=3, state="readonly")
+        par_box.pack(side="left", padx=(6, 16))
+        ttk.Label(mr3, text="Auto-retry").pack(side="left")
+        self.retries = tk.StringVar(value=str(self.settings.get("retries", 2)))
+        ret_box = ttk.Combobox(mr3, textvariable=self.retries, values=["0", "1", "2", "3"], width=3, state="readonly")
+        ret_box.pack(side="left", padx=6)
+        ttk.Label(mr3, text="(speed limit is shared by downloads running at once)",
+                  style="Muted.TLabel").pack(side="left", padx=6)
+        for box in (speed_box, par_box, ret_box):
+            box.bind("<<ComboboxSelected>>", self.on_limits_change)
+        self.on_limits_change()
+
         actions = ttk.Frame(main, padding=(0, 10, 0, 6))
         actions.pack(fill="x")
         ttk.Button(actions, text="Add to queue", style="Accent.TButton", command=self.add_to_queue).pack(side="left")
+        self.more_btn = ttk.Button(actions, text="More options \u25be", command=self.toggle_more)
+        self.more_btn.pack(side="left", padx=(8, 0))
         ttk.Button(actions, text="Open folder", command=self.open_folder).pack(side="left", padx=8)
         ttk.Button(actions, text="Update engine", command=lambda: self.start_engine_update(True)).pack(side="left")
         self.status = ttk.Label(actions, style="Muted.TLabel")
@@ -264,6 +339,7 @@ class App(tk.Tk):
         qbtn = ttk.Frame(qtab, padding=(0, 6, 0, 0))
         qbtn.pack(fill="x")
         ttk.Button(qbtn, text="Cancel selected", command=self.cancel_selected).pack(side="left")
+        ttk.Button(qbtn, text="Retry selected", command=self.retry_selected).pack(side="left", padx=(8, 0))
         ttk.Button(qbtn, text="Clear finished", command=self.clear_finished).pack(side="left", padx=8)
 
         self.history = ttk.Treeview(htab, columns=("when",), height=6)
@@ -283,12 +359,14 @@ class App(tk.Tk):
 
         self.comboboxes = find_widgets(self, ttk.Combobox)
         self.restyle_widgets()
-        threading.Thread(target=self.worker, daemon=True).start()
+        for _ in range(3):  # how many run at once is limited by the "At once" setting
+            threading.Thread(target=self.worker, daemon=True).start()
         self.bind("<FocusIn>", lambda e: self.check_clipboard() if e.widget is self else None)
         self.after(100, self.poll)
         self.after(600, self.check_clipboard)
         self.after(5000, self.follow_system)
         self.after(1500, lambda: self.start_engine_update(False))
+        self.after(2500, self.check_for_app_update)
 
     # ---- theme -----------------------------------------------------------
     def restyle_widgets(self):
@@ -296,6 +374,8 @@ class App(tk.Tk):
         p = PALETTES[self.mode]
         self.urls.configure(bg=p["field"], fg=p["fg"], insertbackground=p["fg"], selectbackground=p["accent"],
                             selectforeground="white", highlightbackground=p["border"])
+        self.picker_list.configure(bg=p["field"], fg=p["fg"], selectbackground=p["accent"],
+                                   selectforeground="white", highlightbackground=p["border"])
         for cb in self.comboboxes:
             try:
                 pop = self.tk.call("ttk::combobox::PopdownWindow", str(cb))
@@ -320,6 +400,29 @@ class App(tk.Tk):
             if mode != self.mode:
                 self.set_mode(mode)
         self.after(5000, self.follow_system)
+
+    def toggle_more(self):
+        if self.more.winfo_ismapped():
+            self.more.pack_forget()
+            self.more_btn.configure(text="More options \u25be")
+        else:
+            self.more.pack(fill="x", after=self.more_anchor)
+            self.more_btn.configure(text="More options \u25b4")
+
+    def on_limits_change(self, _event=None):
+        self.cfg.update(speed=ytdl.SPEEDS[self.speed.get()], parallel=int(self.parallel.get()),
+                        retries=int(self.retries.get()))
+
+    def check_for_app_update(self):
+        def run():
+            try:
+                info = updates.check(__version__)
+                if info:
+                    self.events.put(("app_update", info))
+            except Exception:
+                pass  # offline or rate-limited: try again next launch
+
+        threading.Thread(target=run, daemon=True).start()
 
     # ---- small helpers ---------------------------------------------------
     def pick_folder(self):
@@ -400,9 +503,15 @@ class App(tk.Tk):
         self.preview_btn.configure(state="disabled")
         self.set_status("Loading preview…")
         browser, cookies = self.current_auth()
+        want_list = self.playlist.get()
 
         def run():
             try:
+                if want_list:  # playlist mode: list the videos so the user can tick the ones they want
+                    entries = ytdl.playlist_entries(urls[0], browser, cookies)
+                    if entries:
+                        self.events.put(("picker", urls[0], entries))
+                        return
                 info = ytdl.video_info(urls[0], browser, cookies)
                 img = None
                 if info.get("thumbnail") and Image:
@@ -420,6 +529,7 @@ class App(tk.Tk):
     def show_preview(self, info, img_bytes):
         self.preview_btn.configure(state="normal")
         self.set_status("")
+        self.hide_picker()
         self.preview_image = None
         if img_bytes and Image:
             try:
@@ -437,12 +547,37 @@ class App(tk.Tk):
         if info.get("heights"):
             lines.append("Qualities: " + ", ".join(f"{h}p" for h in info["heights"]))
         self.preview_text.configure(text="\n".join(lines))
-        self.preview_frame.pack(fill="x", after=self.urls_frame)
+        self.preview_frame.pack(fill="x", before=self.opts_frame)
+
+    def show_picker(self, url, entries):
+        self.preview_btn.configure(state="normal")
+        self.set_status("")
+        self.preview_frame.pack_forget()
+        self.picker_url, self.picker_entries = url, entries
+        self.picker_list.delete(0, "end")
+        for i, e in enumerate(entries, 1):
+            dur = f"  [{fmt_duration(e['duration'])}]" if e["duration"] else ""
+            self.picker_list.insert("end", f"{i}. {e['title']}{dur}")
+        self.picker_list.select_set(0, "end")
+        self.picker_title.configure(text=f"{len(entries)} videos found. Untick none, select the ones you want:")
+        self.picker.pack(fill="x", before=self.opts_frame)
+
+    def hide_picker(self):
+        self.picker_url, self.picker_entries = None, []
+        self.picker.pack_forget()
 
     # ---- queue -----------------------------------------------------------
+    def enqueue(self, url, kwargs, title=None):
+        iid = str(self.next_id)
+        self.next_id += 1
+        item = dict(id=iid, url=url, title=title or url, cancel=threading.Event(), kwargs=kwargs)
+        self.items[iid] = item
+        self.tree.insert("", "end", iid=iid, text=item["title"], values=("Queued", ""))
+        self.jobs.put(item)
+
     def add_to_queue(self):
-        urls = [u.strip() for u in self.urls.get("1.0", "end").splitlines() if u.strip()]
-        if not urls:
+        lines = [u.strip() for u in self.urls.get("1.0", "end").splitlines() if u.strip()]
+        if not lines:
             messagebox.showinfo("ytdl", "Paste at least one video link.")
             return
         start, end = self.clip_start.get().strip(), self.clip_end.get().strip()
@@ -456,30 +591,50 @@ class App(tk.Tk):
         except ValueError as e:
             messagebox.showerror("ytdl", f"Check the clip times: {e}")
             return
+        chosen = [self.picker_entries[i] for i in self.picker_list.curselection()] if self.picker_entries else []
+        if self.picker_entries and self.picker_url in lines and not chosen:
+            messagebox.showinfo("ytdl", "Select at least one video from the list.")
+            return
         browser, cookies = self.current_auth()
-        self.settings.update(folder=self.folder.get(), browser=self.browser.get(),
-                             cookies_file=self.cookies_file, extras=self.extras.get())
+        sub = self.sub_lang.get()
+        naming = ytdl.key_for_label(self.naming.get(), ytdl.NAMING, "title-id")
+        folders = ytdl.key_for_label(self.folders.get(), ytdl.FOLDER_RULES, "flat")
+        self.settings.update(folder=self.folder.get(), browser=self.browser.get(), cookies_file=self.cookies_file,
+                             extras=self.extras.get(), naming=naming, folders=folders, sub_lang=sub,
+                             sub_embed=self.sub_embed.get(), speed=self.speed.get(),
+                             parallel=int(self.parallel.get()), retries=int(self.retries.get()))
         save_settings(self.settings)
-        for url in urls:
-            iid = str(self.next_id)
-            self.next_id += 1
-            item = dict(id=iid, url=url, title=url, cancel=threading.Event(),
-                        kwargs=dict(output=self.folder.get(), quality=self.quality.get(),
-                                    fmt=self.fmt_box.get().split()[0], playlist=self.playlist.get(),
-                                    browser=browser, cookies_file=cookies, clip=clip,
-                                    extras=self.extras.get()))
-            self.items[iid] = item
-            self.tree.insert("", "end", iid=iid, text=url, values=("Queued", ""))
-            self.jobs.put(item)
+        kwargs = dict(output=self.folder.get(), quality=self.quality.get(), fmt=self.fmt_box.get().split()[0],
+                      playlist=self.playlist.get(), browser=browser, cookies_file=cookies, clip=clip,
+                      extras=self.extras.get(), naming=naming, folders=folders,
+                      sub_lang=None if sub == "Off" else sub, sub_embed=self.sub_embed.get())
+        for url in lines:
+            if chosen and url == self.picker_url:
+                # Picked videos become separate downloads, so each can be cancelled or retried on its own.
+                for e in chosen:
+                    self.enqueue(e["url"], dict(kwargs, playlist=False), e["title"])
+            else:
+                self.enqueue(url, kwargs)
         self.urls.delete("1.0", "end")
+        self.hide_picker()
         self.dismiss_clip()
 
     def cancel_selected(self):
         for iid in self.tree.selection():
             item = self.items.get(iid)
-            if item and self.tree.set(iid, "status") in ("Queued", "Downloading"):
+            if item and self.tree.set(iid, "status").split(" (")[0] in ("Queued", "Downloading", "Retrying"):
                 item["cancel"].set()
                 self.tree.set(iid, "status", "Cancelling…")
+
+    def retry_selected(self):
+        for iid in self.tree.selection():
+            item = self.items.get(iid)
+            if item and self.tree.set(iid, "status") in ("Failed", "Cancelled"):
+                item["cancel"] = threading.Event()
+                self.tree.item(iid, text=item["title"])
+                self.tree.set(iid, "status", "Queued")
+                self.tree.set(iid, "progress", "")
+                self.jobs.put(item)
 
     def clear_finished(self):
         for iid in list(self.tree.get_children()):
@@ -489,7 +644,7 @@ class App(tk.Tk):
 
     def active_count(self):
         return sum(1 for i in self.tree.get_children()
-                   if self.tree.set(i, "status") in ("Queued", "Downloading", "Cancelling…"))
+                   if self.tree.set(i, "status").split(" (")[0] in ("Queued", "Downloading", "Cancelling…", "Retrying"))
 
     def on_close(self):
         if self.active_count() and not messagebox.askyesno(
@@ -498,36 +653,64 @@ class App(tk.Tk):
         self.destroy()
 
     def worker(self):
-        """Runs queued downloads one at a time, off the window thread."""
+        """Pulls queued downloads; how many run at once is the 'At once' setting."""
         while True:
             item = self.jobs.get()
-            iid = item["id"]
-            if item["cancel"].is_set():
-                self.events.put(("status", iid, "Cancelled"))
-                continue
-            self.events.put(("status", iid, "Downloading"))
-
-            def hook(d, item=item, iid=iid):
-                if item["cancel"].is_set():
-                    raise ytdl.Cancelled()
-                title = (d.get("info_dict") or {}).get("title")
-                if title:
-                    self.events.put(("title", iid, title))
-                if d["status"] == "downloading":
-                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                    if total:
-                        self.events.put(("progress", iid, d["downloaded_bytes"] * 100 / total))
-
+            with self.cv:
+                while self.running >= self.cfg["parallel"] and not item["cancel"].is_set():
+                    self.cv.wait(0.5)
+                self.running += 1
             try:
-                files = ytdl.download_one(item["url"], hooks=[hook], quiet=True, **item["kwargs"])
-                self.events.put(("done", iid, files))
+                self.run_item(item)
+            finally:
+                with self.cv:
+                    self.running -= 1
+                    self.cv.notify_all()
+
+    def run_item(self, item):
+        iid, attempt = item["id"], 0
+        put = self.events.put
+
+        def hook(d):
+            if item["cancel"].is_set():
+                raise ytdl.Cancelled()
+            title = (d.get("info_dict") or {}).get("title")
+            if title:
+                put(("title", iid, title))
+            if d["status"] == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                if total:
+                    put(("progress", iid, d["downloaded_bytes"] * 100 / total))
+
+        while True:
+            if item["cancel"].is_set():
+                put(("status", iid, "Cancelled"))
+                return
+            put(("status", iid, "Downloading"))
+            rate = self.cfg["speed"]
+            kwargs = dict(item["kwargs"], ratelimit=rate // self.cfg["parallel"] if rate else None)
+            try:
+                files = ytdl.download_one(item["url"], hooks=[hook], quiet=True, **kwargs)
+                put(("done", iid, files))
+                return
             except ytdl.Cancelled:
-                self.events.put(("status", iid, "Cancelled"))
+                put(("status", iid, "Cancelled"))
+                return
             except Exception as e:
+                message = str(e).replace("ERROR: ", "")
                 if item["cancel"].is_set():
-                    self.events.put(("status", iid, "Cancelled"))
-                else:
-                    self.events.put(("failed", iid, str(e).replace("ERROR: ", "")))
+                    put(("status", iid, "Cancelled"))
+                    return
+                if attempt < self.cfg["retries"] and ytdl.is_transient(message):
+                    attempt += 1
+                    put(("status", iid, f"Retrying ({attempt}/{self.cfg['retries']})"))
+                    for _ in range(int(3 * attempt / 0.25)):  # wait 3s, 6s, 9s but react to Cancel
+                        if item["cancel"].is_set():
+                            break
+                        time.sleep(0.25)
+                    continue
+                put(("failed", iid, message))
+                return
 
     # ---- history ---------------------------------------------------------
     def record_history(self, files):
@@ -593,6 +776,12 @@ class App(tk.Tk):
                     self.tree.item(a, text=f"{self.items[a]['title']}  -  {b.splitlines()[0][:90]}")
                 elif kind == "preview":
                     self.show_preview(a, b)
+                elif kind == "picker":
+                    self.show_picker(a, b)
+                elif kind == "app_update":
+                    self.update_label.configure(text=f"ytdl {a['version']} is available.")
+                    self.update_btn.configure(command=lambda u=a["url"]: webbrowser.open(u))
+                    self.update_bar.pack(fill="x", pady=(0, 8), before=self.urls_frame)
                 elif kind == "preview_error":
                     self.preview_btn.configure(state="normal")
                     self.set_status("")
