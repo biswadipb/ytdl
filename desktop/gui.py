@@ -1,14 +1,22 @@
-"""Simple desktop window for ytdl (tkinter, ships with Python)."""
+"""Desktop window for ytdl (tkinter, ships with Python)."""
+import io
 import json
 import os
 import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
+import urllib.request
 from tkinter import filedialog, messagebox, ttk
 
 import ytdl
+
+try:
+    from PIL import Image, ImageTk
+except ImportError:  # thumbnails are optional
+    Image = ImageTk = None
 
 
 def asset_path(name):
@@ -21,32 +29,33 @@ def asset_path(name):
 
 SETTINGS = os.path.join(os.path.expanduser("~"), ".ytdl_settings.json")
 THEME_CHOICES = ["System", "Light", "Dark"]
+HISTORY_LIMIT = 100
 
 PALETTES = {
     "light": dict(bg="#F7F7FB", fg="#1F1F2E", muted="#55556B", field="#FFFFFF", border="#C9C9D9",
                   trough="#E4E4EE", button="#ECECF4", button_hover="#E0E0EC",
-                  accent="#4F46E5", accent_dark="#4338CA", accent_soft="#A5A1F0"),
+                  accent="#4F46E5", accent_dark="#4338CA", accent_soft="#A5A1F0", banner="#E8E7FD"),
     "dark": dict(bg="#16161F", fg="#EDEDF5", muted="#A0A0B8", field="#1F1F2B", border="#3A3A4D",
                  trough="#2A2A3A", button="#2A2A3A", button_hover="#34344A",
-                 accent="#6D64F0", accent_dark="#5B52E0", accent_soft="#47427F"),
+                 accent="#6D64F0", accent_dark="#5B52E0", accent_soft="#47427F", banner="#26254A"),
 }
 
 
-def load_theme_choice():
+def load_settings():
     try:
         with open(SETTINGS) as f:
-            choice = json.load(f).get("theme", "System")
-        return choice if choice in THEME_CHOICES else "System"
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
-        return "System"
+        return {}
 
 
-def save_theme_choice(choice):
+def save_settings(data):
     try:
         with open(SETTINGS, "w") as f:
-            json.dump({"theme": choice}, f)
+            json.dump(data, f)
     except OSError:
-        pass  # remembering the theme is a convenience only
+        pass  # remembering settings is a convenience only
 
 
 def system_mode():
@@ -66,6 +75,10 @@ def system_mode():
     return "light"
 
 
+def resolve_mode(choice):
+    return system_mode() if choice == "System" else choice.lower()
+
+
 def find_widgets(parent, kind):
     found = []
     for child in parent.winfo_children():
@@ -73,10 +86,6 @@ def find_widgets(parent, kind):
             found.append(child)
         found.extend(find_widgets(child, kind))
     return found
-
-
-def resolve_mode(choice):
-    return system_mode() if choice == "System" else choice.lower()
 
 
 def apply_theme(root, mode):
@@ -88,6 +97,9 @@ def apply_theme(root, mode):
     s.configure(".", background=p["bg"], foreground=p["fg"])
     for w in ("TFrame", "TLabel", "TCheckbutton"):
         s.configure(w, background=p["bg"], foreground=p["fg"])
+    s.configure("Muted.TLabel", foreground=p["muted"])
+    s.configure("Banner.TFrame", background=p["banner"])
+    s.configure("Banner.TLabel", background=p["banner"], foreground=p["fg"])
     s.configure("TButton", padding=(12, 5), background=p["button"], foreground=p["fg"],
                 bordercolor=p["border"], lightcolor=p["button"], darkcolor=p["button"])
     s.map("TButton", background=[("active", p["button_hover"]), ("disabled", p["bg"])],
@@ -107,6 +119,13 @@ def apply_theme(root, mode):
     s.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"], insertcolor=p["fg"],
                 bordercolor=p["border"], selectbackground=p["accent"], selectforeground="white",
                 lightcolor=p["field"], darkcolor=p["field"])
+    s.configure("Treeview", background=p["field"], fieldbackground=p["field"], foreground=p["fg"],
+                bordercolor=p["border"], rowheight=24)
+    s.map("Treeview", background=[("selected", p["accent"])], foreground=[("selected", "white")])
+    s.configure("Treeview.Heading", background=p["button"], foreground=p["fg"], bordercolor=p["border"])
+    s.configure("TNotebook", background=p["bg"], bordercolor=p["border"])
+    s.configure("TNotebook.Tab", background=p["button"], foreground=p["fg"], padding=(14, 5))
+    s.map("TNotebook.Tab", background=[("selected", p["field"])])
     root.option_add("*TCombobox*Listbox.background", p["field"])
     root.option_add("*TCombobox*Listbox.foreground", p["fg"])
     root.option_add("*TCombobox*Listbox.selectBackground", p["accent"])
@@ -114,10 +133,18 @@ def apply_theme(root, mode):
     return p
 
 
+def fmt_duration(seconds):
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.theme_choice = tk.StringVar(value=load_theme_choice())
+        self.settings = load_settings()
+        choice = self.settings.get("theme", "System")
+        self.theme_choice = tk.StringVar(value=choice if choice in THEME_CHOICES else "System")
         self.mode = resolve_mode(self.theme_choice.get())
         apply_theme(self, self.mode)
         self.title("ytdl")
@@ -126,76 +153,149 @@ class App(tk.Tk):
             self.iconphoto(True, self.icon)
         except tk.TclError:
             pass  # missing icon is cosmetic only
-        self.minsize(620, 440)
+        self.minsize(760, 720)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
         self.events = queue.Queue()
-        self.busy = False
+        self.jobs = queue.Queue()
+        self.items = {}
+        self.next_id = 1
+        self.last_clip = None
+        self.preview_image = None
 
-        pad = {"padx": 10, "pady": 4}
-        frm = ttk.Frame(self, padding=10)
-        frm.pack(fill="both", expand=True)
-        frm.columnconfigure(1, weight=1)
+        main = ttk.Frame(self, padding=12)
+        main.pack(fill="both", expand=True)
+        self.main = main
 
-        ttk.Label(frm, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)").grid(row=0, column=0, columnspan=3, sticky="w", **pad)
-        self.urls = tk.Text(frm, height=4, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
-        self.urls.grid(row=1, column=0, columnspan=3, sticky="ew", **pad)
+        self.clip_bar = ttk.Frame(main, style="Banner.TFrame", padding=(10, 6))
+        self.clip_label = ttk.Label(self.clip_bar, style="Banner.TLabel")
+        self.clip_label.pack(side="left", fill="x", expand=True)
+        ttk.Button(self.clip_bar, text="Dismiss", command=self.dismiss_clip).pack(side="right", padx=(6, 0))
+        ttk.Button(self.clip_bar, text="Paste link", command=self.paste_clip).pack(side="right")
 
-        ttk.Label(frm, text="Save to").grid(row=2, column=0, sticky="w", **pad)
-        self.folder = tk.StringVar(value=ytdl.default_folder())
-        ttk.Entry(frm, textvariable=self.folder).grid(row=2, column=1, sticky="ew", **pad)
-        ttk.Button(frm, text="Browse…", command=self.pick_folder).grid(row=2, column=2, **pad)
+        self.urls_frame = ttk.Frame(main)
+        self.urls_frame.pack(fill="x")
+        self.urls_frame.columnconfigure(0, weight=1)
+        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)"
+                  ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        self.urls = tk.Text(self.urls_frame, height=3, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
+        self.urls.grid(row=1, column=0, sticky="ew")
+        self.preview_btn = ttk.Button(self.urls_frame, text="Preview", command=self.preview)
+        self.preview_btn.grid(row=1, column=1, sticky="n", padx=(8, 0))
 
-        opts = ttk.Frame(frm)
-        opts.grid(row=3, column=0, columnspan=3, sticky="w", **pad)
-        ttk.Label(opts, text="Format").pack(side="left")
-        self.fmt = tk.StringVar(value="mp4")
-        fmt_box = ttk.Combobox(opts, textvariable=self.fmt, state="readonly", width=12,
-                               values=[f"{f} (video)" for f in ytdl.VIDEO_FORMATS]
-                                      + [f"{f} (audio)" for f in ytdl.AUDIO_FORMATS])
-        fmt_box.set("mp4 (video)")
-        fmt_box.pack(side="left", padx=(6, 16))
-        ttk.Label(opts, text="Quality").pack(side="left")
+        self.preview_frame = ttk.Frame(main, padding=(0, 8, 0, 0))
+        self.thumb = ttk.Label(self.preview_frame)
+        self.thumb.pack(side="left", padx=(0, 10))
+        self.preview_text = ttk.Label(self.preview_frame, justify="left", wraplength=480)
+        self.preview_text.pack(side="left", anchor="n")
+
+        opts = ttk.Frame(main, padding=(0, 10, 0, 0))
+        opts.pack(fill="x")
+        opts.columnconfigure(1, weight=1)
+        ttk.Label(opts, text="Save to").grid(row=0, column=0, sticky="w", pady=3)
+        self.folder = tk.StringVar(value=self.settings.get("folder", ytdl.default_folder()))
+        ttk.Entry(opts, textvariable=self.folder).grid(row=0, column=1, sticky="ew", padx=8, pady=3)
+        ttk.Button(opts, text="Browse…", command=self.pick_folder).grid(row=0, column=2, pady=3)
+
+        row1 = ttk.Frame(opts)
+        row1.grid(row=1, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(row1, text="Format").pack(side="left")
+        self.fmt_box = ttk.Combobox(row1, state="readonly", width=12,
+                                    values=[f"{f} (video)" for f in ytdl.VIDEO_FORMATS]
+                                           + [f"{f} (audio)" for f in ytdl.AUDIO_FORMATS])
+        self.fmt_box.set("mp4 (video)")
+        self.fmt_box.pack(side="left", padx=(6, 16))
+        ttk.Label(row1, text="Quality").pack(side="left")
         self.quality = tk.StringVar(value="best")
-        ttk.Combobox(opts, textvariable=self.quality, values=ytdl.QUALITIES,
-                     width=7, state="readonly").pack(side="left", padx=(6, 16))
-        self.fmt_box = fmt_box
+        ttk.Combobox(row1, textvariable=self.quality, values=ytdl.QUALITIES, width=7,
+                     state="readonly").pack(side="left", padx=(6, 16))
+        ttk.Label(row1, text="Clip").pack(side="left")
+        self.clip_start, self.clip_end = tk.StringVar(), tk.StringVar()
+        ttk.Entry(row1, textvariable=self.clip_start, width=7).pack(side="left", padx=(6, 2))
+        ttk.Label(row1, text="to").pack(side="left")
+        ttk.Entry(row1, textvariable=self.clip_end, width=7).pack(side="left", padx=(2, 0))
+        ttk.Label(row1, text="(e.g. 1:30; blank = whole video)", style="Muted.TLabel").pack(side="left", padx=8)
 
-        opts2 = ttk.Frame(frm)
-        opts2.grid(row=4, column=0, columnspan=3, sticky="w", **pad)
+        row2 = ttk.Frame(opts)
+        row2.grid(row=2, column=0, columnspan=3, sticky="w", pady=3)
         self.playlist = tk.BooleanVar()
-        ttk.Checkbutton(opts2, text="All videos in playlist/post", variable=self.playlist).pack(side="left", padx=(0, 16))
-        ttk.Label(opts2, text="Use login from").pack(side="left")
-        self.browser = tk.StringVar(value="none")
-        browser_box = ttk.Combobox(opts2, textvariable=self.browser, values=["none"] + ytdl.BROWSERS,
-                                   width=9, state="readonly")
-        browser_box.pack(side="left", padx=(6, 16))
-        ttk.Label(opts2, text="Theme").pack(side="left")
-        theme_box = ttk.Combobox(opts2, textvariable=self.theme_choice, values=THEME_CHOICES,
-                                 width=7, state="readonly")
+        ttk.Checkbutton(row2, text="All videos in playlist/post", variable=self.playlist).pack(side="left", padx=(0, 16))
+        self.extras = tk.BooleanVar(value=self.settings.get("extras", True))
+        ttk.Checkbutton(row2, text="Embed cover art and tags", variable=self.extras).pack(side="left")
+
+        row3 = ttk.Frame(opts)
+        row3.grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
+        ttk.Label(row3, text="Login for private posts").pack(side="left")
+        self.browser = tk.StringVar(value=self.settings.get("browser", "none"))
+        ttk.Combobox(row3, textvariable=self.browser, values=["none"] + ytdl.BROWSERS, width=9,
+                     state="readonly").pack(side="left", padx=6)
+        self.cookies_file = self.settings.get("cookies_file") or ""
+        self.cookies_btn = ttk.Button(row3, command=self.pick_cookies)
+        self.cookies_btn.pack(side="left", padx=(0, 16))
+        ttk.Label(row3, text="Theme").pack(side="left")
+        theme_box = ttk.Combobox(row3, textvariable=self.theme_choice, values=THEME_CHOICES, width=7,
+                                 state="readonly")
         theme_box.pack(side="left", padx=6)
         theme_box.bind("<<ComboboxSelected>>", self.on_theme_change)
+        self.update_cookies_label()
 
-        self.btn = ttk.Button(frm, text="Download", style="Accent.TButton", command=self.start)
-        self.btn.grid(row=5, column=0, **pad, sticky="w")
-        ttk.Button(frm, text="Open folder", command=self.open_folder).grid(row=5, column=1, **pad, sticky="w")
+        actions = ttk.Frame(main, padding=(0, 10, 0, 6))
+        actions.pack(fill="x")
+        ttk.Button(actions, text="Add to queue", style="Accent.TButton", command=self.add_to_queue).pack(side="left")
+        ttk.Button(actions, text="Open folder", command=self.open_folder).pack(side="left", padx=8)
+        ttk.Button(actions, text="Update engine", command=lambda: self.start_engine_update(True)).pack(side="left")
+        self.status = ttk.Label(actions, style="Muted.TLabel")
+        self.status.pack(side="left", padx=12)
 
-        self.bar = ttk.Progressbar(frm, maximum=100)
-        self.bar.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
-        self.log = tk.Text(frm, height=8, state="disabled", wrap="word", relief="solid", borderwidth=1, highlightthickness=0)
-        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", **pad)
-        frm.rowconfigure(7, weight=1)
+        tabs = ttk.Notebook(main)
+        tabs.pack(fill="both", expand=True)
+        qtab, htab = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
+        tabs.add(qtab, text="Queue")
+        tabs.add(htab, text="History")
+
+        self.tree = ttk.Treeview(qtab, columns=("status", "progress"), height=6)
+        self.tree.heading("#0", text="Download")
+        self.tree.heading("status", text="Status")
+        self.tree.heading("progress", text="Progress")
+        self.tree.column("#0", width=380)
+        self.tree.column("status", width=120, anchor="w")
+        self.tree.column("progress", width=80, anchor="e")
+        self.tree.pack(fill="both", expand=True)
+        qbtn = ttk.Frame(qtab, padding=(0, 6, 0, 0))
+        qbtn.pack(fill="x")
+        ttk.Button(qbtn, text="Cancel selected", command=self.cancel_selected).pack(side="left")
+        ttk.Button(qbtn, text="Clear finished", command=self.clear_finished).pack(side="left", padx=8)
+
+        self.history = ttk.Treeview(htab, columns=("when",), height=6)
+        self.history.heading("#0", text="Saved file")
+        self.history.heading("when", text="When")
+        self.history.column("#0", width=470)
+        self.history.column("when", width=130, anchor="w")
+        self.history.pack(fill="both", expand=True)
+        self.history.bind("<Double-1>", self.reveal_history)
+        hbtn = ttk.Frame(htab, padding=(0, 6, 0, 0))
+        hbtn.pack(fill="x")
+        ttk.Button(hbtn, text="Show in folder", command=self.reveal_history).pack(side="left")
+        ttk.Button(hbtn, text="Clear history", command=self.clear_history).pack(side="left", padx=8)
+        for rec in self.settings.get("history", []):
+            self.history.insert("", "end", text=os.path.basename(rec["file"]), values=(rec["when"],),
+                                tags=(rec["file"],))
 
         self.comboboxes = find_widgets(self, ttk.Combobox)
         self.restyle_widgets()
+        threading.Thread(target=self.worker, daemon=True).start()
+        self.bind("<FocusIn>", lambda e: self.check_clipboard() if e.widget is self else None)
         self.after(100, self.poll)
+        self.after(600, self.check_clipboard)
         self.after(5000, self.follow_system)
+        self.after(1500, lambda: self.start_engine_update(False))
 
+    # ---- theme -----------------------------------------------------------
     def restyle_widgets(self):
-        """Colors that ttk styles don't reach: the plain Text boxes and combobox dropdown lists."""
+        """Colors that ttk styles don't reach: the plain Text box and combobox dropdown lists."""
         p = PALETTES[self.mode]
-        for t in (self.urls, self.log):
-            t.configure(bg=p["field"], fg=p["fg"], insertbackground=p["fg"], selectbackground=p["accent"],
-                        selectforeground="white", highlightbackground=p["border"])
-            t.configure(relief="solid", borderwidth=1)
+        self.urls.configure(bg=p["field"], fg=p["fg"], insertbackground=p["fg"], selectbackground=p["accent"],
+                            selectforeground="white", highlightbackground=p["border"])
         for cb in self.comboboxes:
             try:
                 pop = self.tk.call("ttk::combobox::PopdownWindow", str(cb))
@@ -205,7 +305,8 @@ class App(tk.Tk):
                 pass
 
     def on_theme_change(self, _event=None):
-        save_theme_choice(self.theme_choice.get())
+        self.settings["theme"] = self.theme_choice.get()
+        save_settings(self.settings)
         self.set_mode(resolve_mode(self.theme_choice.get()))
 
     def set_mode(self, mode):
@@ -220,6 +321,7 @@ class App(tk.Tk):
                 self.set_mode(mode)
         self.after(5000, self.follow_system)
 
+    # ---- small helpers ---------------------------------------------------
     def pick_folder(self):
         d = filedialog.askdirectory(initialdir=self.folder.get())
         if d:
@@ -228,64 +330,275 @@ class App(tk.Tk):
     def open_folder(self):
         path = os.path.expanduser(self.folder.get())
         os.makedirs(path, exist_ok=True)
+        self.reveal(path)
+
+    @staticmethod
+    def reveal(path, select=False):
         if sys.platform == "darwin":
-            subprocess.run(["open", path])
+            subprocess.run(["open", "-R", path] if select else ["open", path])
         elif sys.platform == "win32":
-            os.startfile(path)
+            if select:
+                subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+            else:
+                os.startfile(path)
         else:
-            subprocess.run(["xdg-open", path])
+            subprocess.run(["xdg-open", os.path.dirname(path) if select else path])
 
-    def say(self, text):
-        self.log.configure(state="normal")
-        self.log.insert("end", text + "\n")
-        self.log.see("end")
-        self.log.configure(state="disabled")
+    def pick_cookies(self):
+        if self.cookies_file:  # second click clears it
+            self.cookies_file = ""
+        else:
+            path = filedialog.askopenfilename(title="Choose a cookies.txt file",
+                                              filetypes=[("Cookies", "*.txt"), ("All files", "*.*")])
+            if not path:
+                return
+            self.cookies_file = path
+        self.update_cookies_label()
 
-    def start(self):
+    def update_cookies_label(self):
+        self.cookies_btn.configure(
+            text=f"Cookies file: {os.path.basename(self.cookies_file)} (click to remove)"
+            if self.cookies_file else "Use cookies.txt…")
+
+    def set_status(self, text):
+        self.status.configure(text=text)
+
+    # ---- clipboard -------------------------------------------------------
+    def check_clipboard(self):
+        try:
+            text = self.clipboard_get().strip()
+        except tk.TclError:
+            return
+        m = ytdl.SITE_PATTERN.search(text)
+        if not m:
+            return
+        url = m.group(0)
+        if url == self.last_clip or url in self.urls.get("1.0", "end"):
+            return
+        self.last_clip = url
+        shown = url if len(url) <= 70 else url[:67] + "…"
+        self.clip_label.configure(text=f"Link copied: {shown}")
+        self.clip_bar.pack(fill="x", pady=(0, 8), before=self.urls_frame)
+
+    def paste_clip(self):
+        self.urls.insert("end", ("\n" if self.urls.get("1.0", "end").strip() else "") + self.last_clip)
+        self.dismiss_clip()
+
+    def dismiss_clip(self):
+        self.clip_bar.pack_forget()
+
+    # ---- preview ---------------------------------------------------------
+    def current_auth(self):
+        browser = self.browser.get()
+        return (None if browser == "none" else browser), (self.cookies_file or None)
+
+    def preview(self):
+        urls = [u.strip() for u in self.urls.get("1.0", "end").splitlines() if u.strip()]
+        if not urls:
+            messagebox.showinfo("ytdl", "Paste a link to preview.")
+            return
+        self.preview_btn.configure(state="disabled")
+        self.set_status("Loading preview…")
+        browser, cookies = self.current_auth()
+
+        def run():
+            try:
+                info = ytdl.video_info(urls[0], browser, cookies)
+                img = None
+                if info.get("thumbnail") and Image:
+                    try:
+                        with urllib.request.urlopen(info["thumbnail"], timeout=15) as r:
+                            img = r.read()
+                    except Exception:
+                        img = None
+                self.events.put(("preview", info, img))
+            except Exception as e:
+                self.events.put(("preview_error", str(e).replace("ERROR: ", ""), None))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def show_preview(self, info, img_bytes):
+        self.preview_btn.configure(state="normal")
+        self.set_status("")
+        self.preview_image = None
+        if img_bytes and Image:
+            try:
+                im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                im.thumbnail((192, 108))
+                self.preview_image = ImageTk.PhotoImage(im)
+            except Exception:
+                pass
+        self.thumb.configure(image=self.preview_image or "")
+        lines = [info["title"] or "Untitled"]
+        if info.get("channel"):
+            lines.append(f"by {info['channel']}")
+        if info.get("duration"):
+            lines.append(f"Length {fmt_duration(info['duration'])}")
+        if info.get("heights"):
+            lines.append("Qualities: " + ", ".join(f"{h}p" for h in info["heights"]))
+        self.preview_text.configure(text="\n".join(lines))
+        self.preview_frame.pack(fill="x", after=self.urls_frame)
+
+    # ---- queue -----------------------------------------------------------
+    def add_to_queue(self):
         urls = [u.strip() for u in self.urls.get("1.0", "end").splitlines() if u.strip()]
         if not urls:
             messagebox.showinfo("ytdl", "Paste at least one video link.")
             return
-        self.busy = True
-        self.btn.configure(state="disabled")
-        self.bar["value"] = 0
-        browser = self.browser.get()
-        kwargs = dict(output=self.folder.get(), quality=self.quality.get(),
-                      fmt=self.fmt_box.get().split()[0], playlist=self.playlist.get(),
-                      browser=None if browser == "none" else browser)
-        threading.Thread(target=self.work, args=(urls, kwargs), daemon=True).start()
-
-    def hook(self, d):
-        if d["status"] == "downloading":
-            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            if total:
-                self.events.put(("progress", d["downloaded_bytes"] * 100 / total))
-        elif d["status"] == "finished":
-            self.events.put(("log", "Downloaded, finishing up…"))
-
-    def work(self, urls, kwargs):
+        start, end = self.clip_start.get().strip(), self.clip_end.get().strip()
         try:
-            self.events.put(("log", f"Starting {len(urls)} download(s)…"))
-            failures = ytdl.download(urls, hooks=[self.hook], quiet=True, **kwargs)
-            for url, err in failures:
-                self.events.put(("log", f"Failed: {url}\n  {err}"))
-            if not failures:
-                self.events.put(("log", "All done."))
-        except Exception as e:  # keep the window alive on any error
-            self.events.put(("log", f"Error: {e}"))
-        self.events.put(("done", None))
+            clip = None
+            if start or end:
+                s, e = ytdl.parse_time(start) or 0.0, ytdl.parse_time(end)
+                if e is not None and e <= s:
+                    raise ValueError("Clip end must be after its start.")
+                clip = (s, e)
+        except ValueError as e:
+            messagebox.showerror("ytdl", f"Check the clip times: {e}")
+            return
+        browser, cookies = self.current_auth()
+        self.settings.update(folder=self.folder.get(), browser=self.browser.get(),
+                             cookies_file=self.cookies_file, extras=self.extras.get())
+        save_settings(self.settings)
+        for url in urls:
+            iid = str(self.next_id)
+            self.next_id += 1
+            item = dict(id=iid, url=url, title=url, cancel=threading.Event(),
+                        kwargs=dict(output=self.folder.get(), quality=self.quality.get(),
+                                    fmt=self.fmt_box.get().split()[0], playlist=self.playlist.get(),
+                                    browser=browser, cookies_file=cookies, clip=clip,
+                                    extras=self.extras.get()))
+            self.items[iid] = item
+            self.tree.insert("", "end", iid=iid, text=url, values=("Queued", ""))
+            self.jobs.put(item)
+        self.urls.delete("1.0", "end")
+        self.dismiss_clip()
 
+    def cancel_selected(self):
+        for iid in self.tree.selection():
+            item = self.items.get(iid)
+            if item and self.tree.set(iid, "status") in ("Queued", "Downloading"):
+                item["cancel"].set()
+                self.tree.set(iid, "status", "Cancelling…")
+
+    def clear_finished(self):
+        for iid in list(self.tree.get_children()):
+            if self.tree.set(iid, "status") in ("Done", "Failed", "Cancelled"):
+                self.tree.delete(iid)
+                self.items.pop(iid, None)
+
+    def active_count(self):
+        return sum(1 for i in self.tree.get_children()
+                   if self.tree.set(i, "status") in ("Queued", "Downloading", "Cancelling…"))
+
+    def on_close(self):
+        if self.active_count() and not messagebox.askyesno(
+                "ytdl", "Downloads are still running. Quit anyway?\n(Partial files resume if you start them again.)"):
+            return
+        self.destroy()
+
+    def worker(self):
+        """Runs queued downloads one at a time, off the window thread."""
+        while True:
+            item = self.jobs.get()
+            iid = item["id"]
+            if item["cancel"].is_set():
+                self.events.put(("status", iid, "Cancelled"))
+                continue
+            self.events.put(("status", iid, "Downloading"))
+
+            def hook(d, item=item, iid=iid):
+                if item["cancel"].is_set():
+                    raise ytdl.Cancelled()
+                title = (d.get("info_dict") or {}).get("title")
+                if title:
+                    self.events.put(("title", iid, title))
+                if d["status"] == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                    if total:
+                        self.events.put(("progress", iid, d["downloaded_bytes"] * 100 / total))
+
+            try:
+                files = ytdl.download_one(item["url"], hooks=[hook], quiet=True, **item["kwargs"])
+                self.events.put(("done", iid, files))
+            except ytdl.Cancelled:
+                self.events.put(("status", iid, "Cancelled"))
+            except Exception as e:
+                if item["cancel"].is_set():
+                    self.events.put(("status", iid, "Cancelled"))
+                else:
+                    self.events.put(("failed", iid, str(e).replace("ERROR: ", "")))
+
+    # ---- history ---------------------------------------------------------
+    def record_history(self, files):
+        when = time.strftime("%b %d, %H:%M")
+        for path in files:
+            self.settings.setdefault("history", []).insert(0, {"file": path, "when": when})
+            self.history.insert("", 0, text=os.path.basename(path), values=(when,), tags=(path,))
+        self.settings["history"] = self.settings["history"][:HISTORY_LIMIT]
+        for extra in self.history.get_children()[HISTORY_LIMIT:]:
+            self.history.delete(extra)
+        save_settings(self.settings)
+
+    def reveal_history(self, _event=None):
+        sel = self.history.selection()
+        if sel:
+            path = self.history.item(sel[0], "tags")[0]
+            if os.path.exists(path):
+                self.reveal(path, select=True)
+            else:
+                messagebox.showinfo("ytdl", "That file has been moved or deleted.")
+
+    def clear_history(self):
+        self.history.delete(*self.history.get_children())
+        self.settings["history"] = []
+        save_settings(self.settings)
+
+    # ---- engine ----------------------------------------------------------
+    def start_engine_update(self, manual):
+        if manual:
+            self.set_status("Checking for a newer engine…")
+
+        def run():
+            try:
+                changed, msg = ytdl.update_engine()
+                if manual or changed:
+                    self.events.put(("engine", msg))
+            except Exception as e:
+                if manual:
+                    self.events.put(("engine", f"Update failed: {e}"))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    # ---- event loop ------------------------------------------------------
     def poll(self):
         try:
             while True:
-                kind, val = self.events.get_nowait()
-                if kind == "progress":
-                    self.bar["value"] = val
-                elif kind == "log":
-                    self.say(val)
+                kind, a, *rest = self.events.get_nowait()
+                b = rest[0] if rest else None
+                if kind == "progress" and self.tree.exists(a):
+                    self.tree.set(a, "progress", f"{b:.0f}%")
+                elif kind == "title" and self.tree.exists(a):
+                    self.tree.item(a, text=b)
+                    self.items[a]["title"] = b
+                elif kind == "status" and self.tree.exists(a):
+                    self.tree.set(a, "status", b)
                 elif kind == "done":
-                    self.busy = False
-                    self.btn.configure(state="normal")
+                    if self.tree.exists(a):
+                        self.tree.set(a, "status", "Done")
+                        self.tree.set(a, "progress", "100%")
+                    self.record_history(b)
+                elif kind == "failed" and self.tree.exists(a):
+                    self.tree.set(a, "status", "Failed")
+                    self.tree.item(a, text=f"{self.items[a]['title']}  -  {b.splitlines()[0][:90]}")
+                elif kind == "preview":
+                    self.show_preview(a, b)
+                elif kind == "preview_error":
+                    self.preview_btn.configure(state="normal")
+                    self.set_status("")
+                    messagebox.showerror("ytdl", f"Couldn't load a preview.\n\n{a.splitlines()[0][:200]}")
+                elif kind == "engine":
+                    self.set_status(a)
         except queue.Empty:
             pass
         self.after(100, self.poll)

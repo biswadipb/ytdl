@@ -1,137 +1,126 @@
 package dev.ytdl.app
 
 import android.app.Application
-import android.content.ContentValues
-import android.os.Environment
-import android.provider.MediaStore
-import android.webkit.MimeTypeMap
+import android.graphics.BitmapFactory
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
+import java.net.URL
 
-val QUALITIES = listOf("best", "1080", "720", "480", "360")
-val VIDEO_FORMATS = listOf("mp4", "mkv", "webm")
-val AUDIO_FORMATS = listOf("mp3", "m4a", "opus", "wav", "flac")
-val THEMES = listOf("System", "Light", "Dark")
+class Preview(
+    val title: String,
+    val uploader: String?,
+    val duration: Int,
+    val heights: List<Int>,
+    val thumbnail: ImageBitmap?,
+)
 
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var url by mutableStateOf("")
-    var quality by mutableStateOf("best")
     var format by mutableStateOf("mp4")
+    var quality by mutableStateOf("best")
     var playlist by mutableStateOf(false)
+    var extras by mutableStateOf(true)
+    var useLogin by mutableStateOf(true)
+    var clipStart by mutableStateOf("")
+    var clipEnd by mutableStateOf("")
     val audioOnly get() = format in AUDIO_FORMATS
-    var progress by mutableStateOf(0f)
-    var status by mutableStateOf("Starting up…")
-    var busy by mutableStateOf(false)
-    var ready by mutableStateOf(false)
+
+    var message by mutableStateOf("")
+    var preview by mutableStateOf<Preview?>(null)
+    var previewLoading by mutableStateOf(false)
+    var clipboardLink by mutableStateOf<String?>(null)
+    var loggedIn by mutableStateOf(setOf<Site>())
 
     private val prefs = app.getSharedPreferences("ytdl", Application.MODE_PRIVATE)
     var theme by mutableStateOf(prefs.getString("theme", "System") ?: "System")
         private set
+
+    init {
+        DownloadCenter.init(app)
+        refreshLogins()
+    }
 
     fun chooseTheme(choice: String) {
         theme = choice
         prefs.edit().putString("theme", choice).apply()
     }
 
-    private var job: Job? = null
-
-    init {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                YoutubeDL.getInstance().init(app)
-                FFmpeg.getInstance().init(app)
-                ready = true
-                status = "Paste a link and tap Download."
-            } catch (e: Exception) {
-                status = "Setup failed: ${e.message}"
-            }
-        }
+    fun refreshLogins() {
+        loggedIn = Site.entries.filter { CookieStore.isLoggedIn(getApplication(), it) }.toSet()
     }
 
-    fun start() {
-        val link = url.trim()
-        if (!ready || busy || link.isEmpty()) return
-        busy = true
-        progress = 0f
-        status = "Downloading…"
-        job = viewModelScope.launch(Dispatchers.IO) {
-            val dir = File(getApplication<Application>().cacheDir, "dl/${System.currentTimeMillis()}")
-            dir.mkdirs()
+    fun logOut() {
+        CookieStore.logOut(getApplication())
+        refreshLogins()
+    }
+
+    /** "90", "1:30" or "1:02:03" to seconds; blank is null; anything else throws. */
+    private fun seconds(text: String): Double? {
+        val t = text.trim()
+        if (t.isEmpty()) return null
+        return t.split(":").fold(0.0) { acc, part -> acc * 60 + part.toDouble() }
+    }
+
+    fun addToQueue() {
+        val links = url.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (links.isEmpty()) { message = "Paste at least one link."; return }
+        val start: Double?
+        val end: Double?
+        try {
+            start = seconds(clipStart)
+            end = seconds(clipEnd)
+        } catch (e: NumberFormatException) {
+            message = "Clip times look like 1:30 or 90."
+            return
+        }
+        if (end != null && end <= (start ?: 0.0)) { message = "Clip end must be after its start."; return }
+        val opts = Options(format, quality, playlist, start, end, extras, useLogin && loggedIn.isNotEmpty())
+        links.forEach { DownloadCenter.enqueue(it, opts) }
+        url = ""
+        preview = null
+        message = if (links.size == 1) "Added to the queue." else "Added ${links.size} links to the queue."
+    }
+
+    fun loadPreview() {
+        val link = url.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+        if (link == null) { message = "Paste a link to preview."; return }
+        if (!DownloadCenter.ready || previewLoading) return
+        previewLoading = true
+        message = ""
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val req = YoutubeDLRequest(link)
-                if (!playlist) req.addOption("--no-playlist")
-                req.addOption("--windows-filenames")
-                if (audioOnly) {
-                    // Suffix keeps audio from clobbering a same-named video.
-                    req.addOption("-o", "${dir.absolutePath}/%(title).150B [%(id)s] (audio).%(ext)s")
-                    req.addOption("-x")
-                    req.addOption("--audio-format", format)
-                } else {
-                    req.addOption("-o", "${dir.absolutePath}/%(title).150B [%(id)s].%(ext)s")
-                    val h = if (quality == "best") "" else "[height<=$quality]"
-                    req.addOption("-f", "bv*$h+ba/b$h")
-                    req.addOption("--merge-output-format", format)
-                    // Single-file sources (Instagram, X, ...) skip the merge step, so convert them too.
-                    req.addOption(if (format == "webm") "--recode-video" else "--remux-video", format)
+                if (useLogin) CookieStore.merged(getApplication())?.let { req.addOption("--cookies", it.absolutePath) }
+                val info = YoutubeDL.getInstance().getInfo(req)
+                val bitmap = info.thumbnail?.let {
+                    try {
+                        URL(it).openStream().use { s -> BitmapFactory.decodeStream(s) }?.asImageBitmap()
+                    } catch (e: Exception) { null }
                 }
-                YoutubeDL.getInstance().execute(req, "ytdl") { p, _, _ -> progress = p.coerceAtLeast(0f) / 100f }
-
-                val files = dir.listFiles { f -> f.extension !in setOf("part", "ytdl", "temp") }.orEmpty()
-                if (files.isEmpty()) error("No file was produced")
-                files.forEach { saveToDownloads(it) }
-                progress = 1f
-                status = "Saved to Downloads/ytdl:\n" + files.joinToString("\n") { it.name }
+                val heights = info.formats?.map { it.height }?.filter { it > 0 }?.distinct()?.sorted().orEmpty()
+                preview = Preview(info.title ?: "Untitled", info.uploader, info.duration, heights, bitmap)
             } catch (e: Exception) {
-                status = "Failed: ${e.message?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: e}"
+                preview = null
+                message = "Couldn't load a preview: " +
+                    (e.message?.lineSequence()?.firstOrNull { it.contains("ERROR") }?.substringAfter("ERROR:")?.trim()
+                        ?: e.message?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: e.toString())
             } finally {
-                dir.deleteRecursively()
-                busy = false
+                previewLoading = false
             }
         }
     }
 
-    fun cancel() {
-        YoutubeDL.getInstance().destroyProcessById("ytdl")
-        job?.cancel()
-        busy = false
-        status = "Cancelled."
-    }
-
-    /** Copy a finished file into the public Downloads/ytdl folder (no storage permission needed). */
-    private suspend fun saveToDownloads(file: File) = withContext(Dispatchers.IO) {
-        val resolver = getApplication<Application>().contentResolver
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension) ?: "application/octet-stream"
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, file.name)
-            put(MediaStore.Downloads.MIME_TYPE, mime)
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/ytdl")
-        }
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("Could not create file in Downloads")
-        resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
-    }
-
-    /** yt-dlp breaks when YouTube changes; this fetches the newest version. */
-    fun updateEngine() {
-        viewModelScope.launch(Dispatchers.IO) {
-            status = "Updating yt-dlp…"
-            status = try {
-                val r = YoutubeDL.getInstance().updateYoutubeDL(getApplication(), YoutubeDL.UpdateChannel.STABLE)
-                "yt-dlp update: ${r ?: "done"}"
-            } catch (e: Exception) {
-                "Update failed: ${e.message}"
-            }
-        }
+    fun pasteClipboardLink() {
+        clipboardLink?.let { url = if (url.isBlank()) it else url.trimEnd() + "\n" + it }
+        clipboardLink = null
     }
 }
