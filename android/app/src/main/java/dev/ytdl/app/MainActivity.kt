@@ -44,11 +44,15 @@ private fun Screen(vm: DownloadViewModel) {
         Text("ytdl", style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(
             value = vm.url, onValueChange = { vm.url = it },
-            label = { Text("YouTube link") }, modifier = Modifier.fillMaxWidth(),
+            label = { Text("Video link") }, supportingText = { Text("YouTube, Instagram, X/Twitter, Facebook") }, modifier = Modifier.fillMaxWidth(),
         )
+        Text("Video format", style = MaterialTheme.typography.labelLarge)
+        FormatRow(VIDEO_FORMATS, vm.format) { vm.format = it }
+        Text("Audio only", style = MaterialTheme.typography.labelLarge)
+        FormatRow(AUDIO_FORMATS, vm.format) { vm.format = it }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Checkbox(vm.audioOnly, { vm.audioOnly = it })
-            Text("Audio only (mp3)")
+            Checkbox(vm.playlist, { vm.playlist = it })
+            Text("All videos in playlist/post")
         }
         if (!vm.audioOnly) {
             Text("Max quality", style = MaterialTheme.typography.labelLarge)
@@ -71,5 +75,14 @@ private fun Screen(vm: DownloadViewModel) {
         }
         if (vm.busy) LinearProgressIndicator(progress = { vm.progress }, modifier = Modifier.fillMaxWidth())
         Text(vm.status, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun FormatRow(options: List<String>, selected: String, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { f ->
+            FilterChip(selected = selected == f, onClick = { onSelect(f) }, label = { Text(f) })
+        }
     }
 }

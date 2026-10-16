@@ -1,7 +1,17 @@
 # ytdl
 
-Download YouTube videos to your own device. Everything runs locally: no accounts,
-no web service. Saved files play offline.
+Download videos from **YouTube, Instagram, X/Twitter and Facebook** to your own device, as
+video or audio-only. Everything runs locally: no accounts, no web service. Saved files play offline.
+
+| Site | Status |
+|---|---|
+| YouTube | Works |
+| Instagram (posts, reels) | Works; many posts need a login (see below) |
+| X / Twitter | Works for posts that contain video |
+| Facebook (videos, reels) | Works for public videos; others need a login |
+| Threads | **Not supported yet.** The download engine has no Threads support, so links are tried but usually fail |
+
+**Formats:** video as `mp4`, `mkv` or `webm`; audio only as `mp3`, `m4a`, `opus`, `wav` or `flac`.
 
 | Platform | App | Folder |
 |---|---|---|
@@ -39,8 +49,13 @@ Open the **Releases** page of this repo and download the file for your device.
 
 ## Using it
 
-Paste one or more links, choose a quality (or audio-only mp3), tap **Download**.
-Files go to `Downloads/ytdl` on every platform.
+Paste one or more links, pick a format (video or audio), pick a quality, tap **Download**.
+Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in their name so they never overwrite a video.
+
+**Login-only posts (desktop):** Instagram, Facebook and some X posts refuse anonymous downloads.
+Log in to the site in Chrome, Firefox, Safari, Edge or Brave, then choose that browser under
+**Use login from** (CLI: `-b chrome`). Your browser data stays on your computer; on Mac you may see a
+Keychain prompt. The Android app can't borrow a login, so it only handles public posts.
 
 If downloads suddenly fail, YouTube changed something. On Android tap **Update engine**.
 On desktop, install the newest release (or `pip install -U yt-dlp` when running from source).
@@ -52,7 +67,9 @@ cd desktop
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python main.py                      # opens the window
-python main.py URL -q 720 --audio   # command-line mode (see --help)
+python main.py URL -F mp4 -q 720    # video
+python main.py URL -F flac          # audio only
+python main.py URL -b chrome        # use your browser login (see --help for more)
 ```
 
 ## Building the apps yourself

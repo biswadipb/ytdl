@@ -14,7 +14,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ytdl")
-        self.minsize(560, 380)
+        self.minsize(620, 440)
         self.events = queue.Queue()
         self.busy = False
 
@@ -23,7 +23,7 @@ class App(tk.Tk):
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
-        ttk.Label(frm, text="Video links (one per line)").grid(row=0, column=0, columnspan=3, sticky="w", **pad)
+        ttk.Label(frm, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)").grid(row=0, column=0, columnspan=3, sticky="w", **pad)
         self.urls = tk.Text(frm, height=4, wrap="none")
         self.urls.grid(row=1, column=0, columnspan=3, sticky="ew", **pad)
 
@@ -34,24 +34,37 @@ class App(tk.Tk):
 
         opts = ttk.Frame(frm)
         opts.grid(row=3, column=0, columnspan=3, sticky="w", **pad)
+        ttk.Label(opts, text="Format").pack(side="left")
+        self.fmt = tk.StringVar(value="mp4")
+        fmt_box = ttk.Combobox(opts, textvariable=self.fmt, state="readonly", width=12,
+                               values=[f"{f} (video)" for f in ytdl.VIDEO_FORMATS]
+                                      + [f"{f} (audio)" for f in ytdl.AUDIO_FORMATS])
+        fmt_box.set("mp4 (video)")
+        fmt_box.pack(side="left", padx=(6, 16))
         ttk.Label(opts, text="Quality").pack(side="left")
         self.quality = tk.StringVar(value="best")
         ttk.Combobox(opts, textvariable=self.quality, values=ytdl.QUALITIES,
                      width=7, state="readonly").pack(side="left", padx=(6, 16))
-        self.audio = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Audio only (mp3)", variable=self.audio).pack(side="left", padx=(0, 16))
+        self.fmt_box = fmt_box
+
+        opts2 = ttk.Frame(frm)
+        opts2.grid(row=4, column=0, columnspan=3, sticky="w", **pad)
         self.playlist = tk.BooleanVar()
-        ttk.Checkbutton(opts, text="Whole playlist", variable=self.playlist).pack(side="left")
+        ttk.Checkbutton(opts2, text="All videos in playlist/post", variable=self.playlist).pack(side="left", padx=(0, 16))
+        ttk.Label(opts2, text="Use login from").pack(side="left")
+        self.browser = tk.StringVar(value="none")
+        ttk.Combobox(opts2, textvariable=self.browser, values=["none"] + ytdl.BROWSERS,
+                     width=9, state="readonly").pack(side="left", padx=6)
 
         self.btn = ttk.Button(frm, text="Download", command=self.start)
-        self.btn.grid(row=4, column=0, **pad, sticky="w")
-        ttk.Button(frm, text="Open folder", command=self.open_folder).grid(row=4, column=1, **pad, sticky="w")
+        self.btn.grid(row=5, column=0, **pad, sticky="w")
+        ttk.Button(frm, text="Open folder", command=self.open_folder).grid(row=5, column=1, **pad, sticky="w")
 
         self.bar = ttk.Progressbar(frm, maximum=100)
-        self.bar.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
+        self.bar.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
         self.log = tk.Text(frm, height=8, state="disabled", wrap="word")
-        self.log.grid(row=6, column=0, columnspan=3, sticky="nsew", **pad)
-        frm.rowconfigure(6, weight=1)
+        self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", **pad)
+        frm.rowconfigure(7, weight=1)
 
         self.after(100, self.poll)
 
@@ -84,8 +97,10 @@ class App(tk.Tk):
         self.busy = True
         self.btn.configure(state="disabled")
         self.bar["value"] = 0
+        browser = self.browser.get()
         kwargs = dict(output=self.folder.get(), quality=self.quality.get(),
-                      audio=self.audio.get(), playlist=self.playlist.get())
+                      fmt=self.fmt_box.get().split()[0], playlist=self.playlist.get(),
+                      browser=None if browser == "none" else browser)
         threading.Thread(target=self.work, args=(urls, kwargs), daemon=True).start()
 
     def hook(self, d):

@@ -20,11 +20,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 val QUALITIES = listOf("best", "1080", "720", "480", "360")
+val VIDEO_FORMATS = listOf("mp4", "mkv", "webm")
+val AUDIO_FORMATS = listOf("mp3", "m4a", "opus", "wav", "flac")
 
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var url by mutableStateOf("")
     var quality by mutableStateOf("best")
-    var audioOnly by mutableStateOf(false)
+    var format by mutableStateOf("mp4")
+    var playlist by mutableStateOf(false)
+    val audioOnly get() = format in AUDIO_FORMATS
     var progress by mutableStateOf(0f)
     var status by mutableStateOf("Starting up…")
     var busy by mutableStateOf(false)
@@ -56,16 +60,20 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             dir.mkdirs()
             try {
                 val req = YoutubeDLRequest(link)
-                req.addOption("--no-playlist")
-                req.addOption("-o", "${dir.absolutePath}/%(title).150B [%(id)s].%(ext)s")
+                if (!playlist) req.addOption("--no-playlist")
                 req.addOption("--windows-filenames")
                 if (audioOnly) {
+                    // Suffix keeps audio from clobbering a same-named video.
+                    req.addOption("-o", "${dir.absolutePath}/%(title).150B [%(id)s] (audio).%(ext)s")
                     req.addOption("-x")
-                    req.addOption("--audio-format", "mp3")
+                    req.addOption("--audio-format", format)
                 } else {
+                    req.addOption("-o", "${dir.absolutePath}/%(title).150B [%(id)s].%(ext)s")
                     val h = if (quality == "best") "" else "[height<=$quality]"
                     req.addOption("-f", "bv*$h+ba/b$h")
-                    req.addOption("--merge-output-format", "mp4")
+                    req.addOption("--merge-output-format", format)
+                    // Single-file sources (Instagram, X, ...) skip the merge step, so convert them too.
+                    req.addOption(if (format == "webm") "--recode-video" else "--remux-video", format)
                 }
                 YoutubeDL.getInstance().execute(req, "ytdl") { p, _, _ -> progress = p.coerceAtLeast(0f) / 100f }
 
