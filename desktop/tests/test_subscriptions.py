@@ -200,3 +200,23 @@ def test_command_line_checks_for_new_uploads(channel, capsys):
     channel["entries"].insert(0, entry("fresh", channel["new_url"]))
     assert ytdl.cli(["--check-subscriptions"]) == 0
     assert "1 new video(s) saved" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("link,site", [
+    ("https://x.com/NASA", "X"), ("https://twitter.com/NASA", "X"), ("https://www.threads.com/@nasa", "Threads"),
+    ("https://www.facebook.com/NASA", "Facebook")])
+def test_profiles_that_cannot_be_listed_say_so_clearly(link, site):
+    with pytest.raises(ValueError, match=f"{site} doesn't let ytdl list"):
+        subs.list_entries(link)
+
+
+def test_instagram_profile_failures_are_explained_in_plain_language(monkeypatch):
+    class Boom:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def extract_info(self, *a, **k):
+            raise ytdl.yt_dlp.utils.DownloadError("ERROR: [instagram:user] nasa: Unable to extract data; please report this issue")
+    monkeypatch.setattr(ytdl.yt_dlp, "YoutubeDL", Boom)
+    with pytest.raises(ValueError, match="signed in"):
+        subs.list_entries("https://www.instagram.com/nasa/")

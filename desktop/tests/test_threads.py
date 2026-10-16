@@ -125,3 +125,36 @@ def test_real_dailymotion_video(ffmpeg, tmp_path):
         except ytdl.yt_dlp.utils.DownloadError:
             continue  # geo-restricted or removed: try the next one
     pytest.skip("no Dailymotion video was downloadable from this location")
+
+
+# ---- the other supported sites -------------------------------------------------------------------------
+
+SITE_SAMPLES = {
+    "TikTok": "https://www.tiktok.com/@scout2015/video/6718335390845095173",
+    "TikTok short": "https://vm.tiktok.com/ZMabcdef/",
+    "Reddit": "https://www.reddit.com/r/videos/comments/6rrwyj/that_small_heart_attack/",
+    "Vimeo": "https://vimeo.com/76979871",
+    "Twitch clip": "https://clips.twitch.tv/FaintLightGullWholeWheat",
+    "Twitch video": "https://www.twitch.tv/videos/1234567",
+    "SoundCloud": "https://soundcloud.com/forss/flickermood",
+    "Dailymotion": "https://www.dailymotion.com/video/x7or79x",
+}
+
+
+@pytest.mark.parametrize("name", SITE_SAMPLES)
+def test_pasted_links_are_detected_and_the_engine_has_an_extractor(name):
+    url = SITE_SAMPLES[name]
+    assert ytdl.SITE_PATTERN.search(f"look: {url} !"), "link not detected when pasted"
+    from yt_dlp.extractor import gen_extractor_classes
+    claimed = [ie.IE_NAME for ie in gen_extractor_classes() if ie.suitable(url) and ie.IE_NAME != "generic"]
+    assert claimed, f"yt-dlp has no extractor for {name}"
+
+
+@needs_network
+def test_real_soundcloud_track(ffmpeg, tmp_path):
+    try:
+        (path,) = ytdl.download_one("https://soundcloud.com/forss/flickermood", output=str(tmp_path), fmt="mp3",
+                                    extras=False)
+    except ytdl.yt_dlp.utils.DownloadError as e:
+        pytest.skip(f"SoundCloud unreachable from this machine: {str(e)[:80]}")
+    assert duration(ffmpeg, path) > 60

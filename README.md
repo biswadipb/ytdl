@@ -2,7 +2,7 @@
 
 # ytdl
 
-Download videos from **YouTube, Instagram, X/Twitter, Facebook, Threads and Dailymotion** to your own device, as
+Download videos from **YouTube, Instagram, X/Twitter, Facebook, Threads, Dailymotion, TikTok, Reddit, Vimeo, Twitch and SoundCloud** to your own device, as
 video or audio-only. Everything runs locally: no accounts, no web service. Saved files play offline.
 
 | Site | Status |
@@ -13,6 +13,9 @@ video or audio-only. Everything runs locally: no accounts, no web service. Saved
 | Facebook (videos, reels) | Works for public videos; others need a login |
 | Threads (posts with video) | Works. On desktop ytdl uses Chrome, Edge, Brave or Chromium if one is installed (Edge always is on Windows); on Android it uses the phone's built-in browser engine. See "How Threads works" below |
 | Dailymotion | Works for videos that aren't region-locked |
+| SoundCloud | Works (tested with a real track) |
+| Vimeo | Supported, but Vimeo now asks for a login on many videos, so sign in first (see below) |
+| TikTok, Reddit, Twitch (clips and past broadcasts) | Supported by the download engine; I couldn't test a real download from my network, so tell me if one fails |
 
 **Formats:** video as `mp4`, `mkv` or `webm`; audio only as `mp3`, `m4a`, `opus`, `wav` or `flac`.
 
@@ -79,13 +82,22 @@ Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in the
 | Engine update | Yes, automatic at launch plus a button | Yes, automatic on Wi-Fi plus a button |
 | Follow channels and playlists, new uploads download automatically | Yes, even when ytdl is closed (a scheduled job) | Yes, even when the app is closed (WorkManager) |
 | Only while charging / only at night | n/a | Yes, for automatic downloads |
+| Share a link from another app and it downloads at once | n/a | Yes, with the format you chose once |
+| Storage controls: keep for N days, size limit, low-space warning | Yes | Yes |
+| Tray / menu-bar icon, keeps working with the window closed | Yes | n/a (uses a notification) |
 | Tells you when a new ytdl release is out | Yes | Yes |
 | Theme | System / Light / Dark | System / Light / Dark |
 
 **Subscriptions.** Paste a channel or playlist link and choose **Follow channel**. ytdl remembers what's already there, so only *new* uploads download (or also the latest 1 to 10 if you ask). It checks the newest 15 videos, retries failures a few times, and gives up on a video that keeps failing.
 - *Desktop:* the **Subscriptions** tab lists what you follow. The window checks while it's open. Choose **Turn on background checks** to also register an hourly job with your computer (a LaunchAgent on Mac, Task Scheduler on Windows, cron on Linux), so downloads happen even when ytdl is closed. The Mac also shows a notification for each new video. From a terminal: `python main.py --subscribe URL`, `--subscriptions`, `--check-subscriptions`, `--schedule install`.
 - *Android:* the **Subscriptions** section lists them. A background job runs about hourly. **Only while charging** and **Only at night (11 pm to 7 am)** limit when automatic checks run, and the job follows your Wi-Fi-only setting. Check now and downloads you start yourself are never delayed. Android decides the exact moment, so a check can be late, especially in battery saver.
-- Works for YouTube channels and playlists, and for any playlist-style link the download engine can list. Profiles on X, Facebook and Threads can't be listed.
+- Works for YouTube channels and playlists, and for any playlist-style link the download engine can list. **Profiles on X, Threads and Facebook can't be followed**: they don't let ytdl list a profile's posts, and ytdl says so instead of failing oddly. Instagram profiles are attempted but need you to be signed in, and Instagram often blocks them anyway. Individual posts from all of these still download.
+
+**Storage controls.** In the Subscriptions area you can keep downloads for 7, 30 or 90 days, set a size limit, and get a warning (and paused automatic downloads) when free space runs low. Cleanup only ever deletes files that *subscriptions* downloaded, oldest first, and asks before deleting when you press Clean up now. Your own downloads are never touched.
+
+**Tray icon (desktop).** With "Keep running in the menu bar / system tray when closed" on (the default), closing the window hides it and ytdl keeps downloading and checking subscriptions. Click the icon to reopen, or choose Quit ytdl from its menu.
+
+**Share from other apps (Android).** The first time you share a link to ytdl, it asks "Download shared links automatically from now on?". Choose the format and quality on screen and tap **Download and remember**. After that, sharing a single video, post or track from any app adds it to the queue straight away with a short confirmation, and you stay in the app you were using. Channel, profile and playlist links always open ytdl so you can decide. Change the saved choice, or turn it off, under *Shared links*.
 
 **Playlists.** Tick "All videos in playlist/post" and tap **Preview**: you get a list to tick the videos you want, and each one becomes its own queue item.
 

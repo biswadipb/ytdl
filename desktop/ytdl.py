@@ -83,7 +83,7 @@ PERMANENT_ERRORS = ("unsupported url", "private", "sign in", "log in", "login", 
 THUMBNAIL_FORMATS = {"mp3", "m4a", "opus", "flac", "mp4", "mkv"}  # containers that can hold cover art
 SITE_PATTERN = re.compile(
     r"https?://([\w-]+\.)*(youtube\.com|youtu\.be|instagram\.com|x\.com|twitter\.com|"
-    r"facebook\.com|fb\.watch|threads\.(net|com)|dailymotion\.com|dai\.ly)/\S+", re.I)
+    r"facebook\.com|fb\.watch|threads\.(net|com)|dailymotion\.com|dai\.ly|tiktok\.com|reddit\.com|redd\.it|vimeo\.com|twitch\.tv|soundcloud\.com)/\S+", re.I)
 
 
 class Cancelled(Exception):

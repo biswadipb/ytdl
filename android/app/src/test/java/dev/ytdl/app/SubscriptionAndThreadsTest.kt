@@ -87,4 +87,14 @@ class SubscriptionAndThreadsTest {
         assertTrue(LINK_PATTERN.containsMatchIn("https://dai.ly/x7or79x"))
         assertTrue(LINK_PATTERN.containsMatchIn("https://www.threads.com/@zuck/post/DSVRshjkbtK"))
     }
+
+    @Test fun profilesOnSitesThatCannotBeListedExplainWhy() {
+        assertTrue(unlistableReason("https://x.com/NASA")!!.contains("X doesn't let ytdl"))
+        assertTrue(unlistableReason("https://www.threads.com/@nasa")!!.contains("Threads"))
+        assertTrue(unlistableReason("https://www.facebook.com/NASA")!!.contains("Facebook"))
+        assertNull(unlistableReason("https://www.youtube.com/@TED"))
+        assertNull(unlistableReason("https://www.instagram.com/nasa/"))     // worth trying: needs a login
+        assertTrue(explainListingError("https://www.instagram.com/nasa/", "Unable to extract data").contains("signed in"))
+        assertTrue(explainListingError("https://example.com/x", "ERROR: Unsupported URL: x").contains("can't follow"))
+    }
 }

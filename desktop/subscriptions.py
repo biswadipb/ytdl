@@ -78,12 +78,44 @@ def listing_url(url):
     return m.group(1) + "/videos" if m else url
 
 
+_NO_PROFILES = {
+    "x.com": "X", "twitter.com": "X", "threads.com": "Threads", "threads.net": "Threads", "facebook.com": "Facebook",
+}
+
+
+def unlistable_reason(url):
+    """Why a link can't be followed, when we already know (so the user isn't left with a cryptic error). Else None."""
+    host = re.sub(r"^(?:www\.|m\.|mobile\.)", "", (re.match(r"https?://([^/]+)", url.strip()) or [None, ""])[1].lower())
+    name = _NO_PROFILES.get(host)
+    if name:
+        return (f"{name} doesn't let ytdl list a profile's posts, so profiles can't be followed. "
+                f"You can still download individual {name} posts.")
+    return None
+
+
+def explain_listing_error(url, error):
+    """A plain-language message for a failed channel listing."""
+    text = str(error).replace("ERROR: ", "").strip()
+    if "instagram.com" in url.lower():
+        return ("Instagram wouldn't list this profile. It usually needs you to be signed in (see Login for private posts), "
+                "and Instagram often blocks profile listing even then. Individual posts and reels still download.")
+    if "Unsupported URL" in text:
+        return "ytdl can't follow that kind of link. Follow a YouTube channel or playlist, or another playlist-style link."
+    return text.splitlines()[0][:200] if text else "Couldn't read that link."
+
+
 def list_entries(url, browser=None, cookies_file=None, limit=PEEK):
     """(name, [{id, url, title, upcoming}]) for the newest videos of a channel or playlist, newest first."""
+    reason = unlistable_reason(url)
+    if reason:
+        raise ValueError(reason)
     opts = ytdl._auth({"quiet": True, "no_warnings": True, "extract_flat": "in_playlist",
                        "playlistend": limit, "lazy_playlist": True}, browser, cookies_file)
-    with ytdl.yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(listing_url(url), download=False)
+    try:
+        with ytdl.yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(listing_url(url), download=False)
+    except ytdl.yt_dlp.utils.DownloadError as e:
+        raise ValueError(explain_listing_error(url, e)) from e
     if info.get("_type") != "playlist":
         raise ValueError("That link is a single video. Follow a channel or playlist link instead.")
     entries = []
@@ -173,9 +205,16 @@ def record_failure(sub_id, video_id):
 
 
 def add_recent(sub_name, title, files):
+    """Remember what a subscription downloaded: for the Recent list, and so storage cleanup knows what it may delete."""
     data = load()
+    now = time.time()
     for f in files:
         data["recent"].insert(0, {"sub": sub_name, "title": title, "file": f, "when": time.strftime("%b %d, %H:%M")})
+        try:
+            size = os.path.getsize(f)
+        except OSError:
+            size = 0
+        data.setdefault("files", []).append({"sub": sub_name, "path": f, "size": size, "time": now})
     data["recent"] = data["recent"][:50]
     save(data)
 
@@ -227,8 +266,13 @@ def check_due(log=print, force=False):
         if not got:
             log("Another check is already running.")
             return 0
+        import storage
         for sub in (load()["subs"] if force else due()):
             if force and not sub["enabled"]:
+                continue
+            is_low, free = storage.low_space(sub["options"]["output"])
+            if is_low:
+                log(f"{sub['name']}: skipped, only {storage.human(free)} free (change the warning in Subscriptions).")
                 continue
             try:
                 _, entries = list_entries(sub["url"], sub["options"].get("browser"), sub["options"].get("cookies_file"))
@@ -249,6 +293,9 @@ def check_due(log=print, force=False):
                 elif record_failure(sub["id"], entry["id"]):
                     log(f"  giving up on {entry['title']}")
             mark_seen(sub["id"], done)
+        count, freed = storage.cleanup()
+        if count:
+            log(f"Storage cleanup removed {count} old file(s), {storage.human(freed)}.")
     return saved
 
 

@@ -1,4 +1,5 @@
 import functools
+import os
 import http.server
 import subprocess
 import sys
@@ -71,3 +72,6 @@ def isolated_subscriptions(tmp_path, monkeypatch):
     monkeypatch.setattr(subscriptions, "STORE", tmp_path / "ytdl-home" / "subscriptions.json")
     monkeypatch.setattr(subscriptions, "LOCK", tmp_path / "ytdl-home" / "subscriptions.lock")
     monkeypatch.setattr(subscriptions, "schedule_installed", lambda: False)
+
+
+os.environ.setdefault("YTDL_NO_TRAY", "1")   # tests never put an icon in the real menu bar

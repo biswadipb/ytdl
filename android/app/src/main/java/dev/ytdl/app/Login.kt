@@ -23,6 +23,7 @@ enum class Site(val label: String, val loginUrl: String, val cookieUrls: List<St
         listOf("https://x.com", "https://twitter.com"), listOf(".x.com", ".twitter.com")),
     Threads("Threads", "https://www.threads.com/login",
         listOf("https://www.threads.com", "https://www.threads.net"), listOf(".threads.com", ".threads.net")),
+    Vimeo("Vimeo", "https://vimeo.com/log_in", listOf("https://vimeo.com"), listOf(".vimeo.com")),
 }
 
 /** Cookies captured from the in-app browser, stored privately and handed to yt-dlp as cookies.txt. */

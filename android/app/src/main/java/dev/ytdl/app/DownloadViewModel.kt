@@ -56,6 +56,11 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var clipboardLink by mutableStateOf<String?>(null)
     var loggedIn by mutableStateOf(setOf<Site>())
     var newRelease by mutableStateOf<ReleaseInfo?>(null)
+    var sharePrompt by mutableStateOf(false)
+    var shareAuto by mutableStateOf(SharePrefs.auto(app))
+        private set
+    var shareSummary by mutableStateOf(SharePrefs.summary(app))
+        private set
     var followBackfill by mutableStateOf(0)
     var followBusy by mutableStateOf(false)
 
@@ -106,6 +111,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             message = "Select at least one video from the list."
             return
         }
+        val lowSpace = Storage.isLow()
         val opts = Options(format, quality, playlist, start, end, extras, useLogin && loggedIn.isNotEmpty(),
             naming, folders, subLang.takeIf { it != "Off" && !audioOnly })
         links.forEach { link ->
@@ -120,7 +126,8 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
         url = ""
         preview = null
         clearPicker()
-        message = if (count == 1) "Added to the queue." else "Added $count downloads to the queue."
+        message = (if (count == 1) "Added to the queue." else "Added $count downloads to the queue.") +
+            if (lowSpace) " Warning: only ${humanSize(Storage.freeBytes)} of space is free." else ""
     }
 
     private fun clearPicker() { picker.clear(); pickerUrl = null }
@@ -225,6 +232,31 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
             val queued = Subscriptions.checkAll(force = true)
             message = if (queued > 0) "$queued new upload(s) added to the queue." else "No new uploads."
         }
+    }
+
+    /** Remember the format and quality currently selected for links shared into ytdl. */
+    fun saveSharePreset() {
+        SharePrefs.save(getApplication(), currentOptions())
+        shareSummary = SharePrefs.summary(getApplication())
+    }
+
+    fun chooseShareAuto(on: Boolean) {
+        if (on && SharePrefs.preset(getApplication()) == null) saveSharePreset()
+        SharePrefs.setAuto(getApplication(), on)
+        shareAuto = on
+    }
+
+    /** First shared link: the user picked a format on screen, so download with it now and do the same next time. */
+    fun downloadAndRemember() {
+        saveSharePreset()
+        chooseShareAuto(true)
+        sharePrompt = false
+        addToQueue()
+    }
+
+    fun dismissSharePrompt() {
+        SharePrefs.setAsked(getApplication())
+        sharePrompt = false
     }
 
     fun pasteClipboardLink() {

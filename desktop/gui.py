@@ -11,6 +11,8 @@ import tkinter as tk
 import urllib.request
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import storage
+import tray
 import subscriptions
 import updates
 import webbrowser
@@ -192,7 +194,7 @@ class App(tk.Tk):
         self.urls_frame = ttk.Frame(main)
         self.urls_frame.pack(fill="x")
         self.urls_frame.columnconfigure(0, weight=1)
-        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads, Dailymotion (one per line)"
+        ttk.Label(self.urls_frame, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads, Dailymotion, TikTok, Reddit, Vimeo, Twitch, SoundCloud (one per line)"
                   ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.urls = tk.Text(self.urls_frame, height=3, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
         self.urls.grid(row=1, column=0, sticky="ew")
@@ -254,7 +256,10 @@ class App(tk.Tk):
         self.playlist = tk.BooleanVar()
         ttk.Checkbutton(row2, text="All videos in playlist/post", variable=self.playlist).pack(side="left", padx=(0, 16))
         self.extras = tk.BooleanVar(value=self.settings.get("extras", True))
-        ttk.Checkbutton(row2, text="Embed cover art and tags", variable=self.extras).pack(side="left")
+        ttk.Checkbutton(row2, text="Embed cover art and tags", variable=self.extras).pack(side="left", padx=(0, 16))
+        self.keep_running = tk.BooleanVar(value=self.settings.get("tray", True))
+        ttk.Checkbutton(row2, text=f"Keep running in the {tray.label()} when closed", variable=self.keep_running,
+                        command=self.on_keep_running).pack(side="left")
 
         row3 = ttk.Frame(opts)
         row3.grid(row=3, column=0, columnspan=3, sticky="w", pady=3)
@@ -373,6 +378,11 @@ class App(tk.Tk):
         self.after(1500, lambda: self.start_engine_update(False))
         self.after(2500, self.check_for_app_update)
         self.after(4000, self.start_subscription_tick)
+        self.tray = None
+        self.after(800, self.start_tray)
+        self.after(2000, self.update_tray)
+        if sys.platform == "darwin":   # clicking the Dock icon brings the hidden window back
+            self.createcommand("tk::mac::ReopenApplication", self.show_window)
 
     # ---- theme -----------------------------------------------------------
     def restyle_widgets(self):
@@ -460,6 +470,25 @@ class App(tk.Tk):
         self.sched_btn.pack(side="left", padx=12)
         self.sched_label = ttk.Label(sched, style="Muted.TLabel")
         self.sched_label.pack(side="left")
+        store = ttk.Frame(tab, padding=(0, 8, 0, 0))
+        store.pack(fill="x")
+        s = storage.settings()
+        self.keep_days = tk.StringVar(value="Forever" if not s["keep_days"] else f"{s['keep_days']} days")
+        self.max_gb = tk.StringVar(value="No limit" if not s["max_gb"] else f"{s['max_gb']} GB")
+        self.min_free = tk.StringVar(value="Off" if not s["min_free_gb"] else f"{s['min_free_gb']} GB")
+        for label, var, choices, key in (
+                ("Keep downloads", self.keep_days, ["Forever"] + [f"{d} days" for d in storage.KEEP_CHOICES[1:]], "keep_days"),
+                ("Limit", self.max_gb, ["No limit"] + [f"{g} GB" for g in storage.MAX_CHOICES[1:]], "max_gb"),
+                ("Warn below", self.min_free, ["Off"] + [f"{g} GB" for g in storage.FREE_CHOICES[1:]], "min_free_gb")):
+            ttk.Label(store, text=label).pack(side="left", padx=(0, 4))
+            box = ttk.Combobox(store, textvariable=var, values=choices, width=9, state="readonly")
+            box.pack(side="left", padx=(0, 12))
+            box.bind("<<ComboboxSelected>>", lambda e, v=var, k=key: self.change_storage(k, v.get()))
+        ttk.Button(store, text="Clean up now", command=self.clean_now).pack(side="left")
+        self.free_label = ttk.Label(tab, style="Muted.TLabel")
+        self.free_label.pack(anchor="w")
+        ttk.Label(tab, text="Cleanup only deletes files that subscriptions downloaded, oldest first. "
+                  "Your own downloads are never touched.", style="Muted.TLabel", wraplength=640).pack(anchor="w")
         ttk.Label(tab, text="Recently downloaded by subscriptions", padding=(0, 8, 0, 2)).pack(anchor="w")
         self.recent_tree = ttk.Treeview(tab, columns=("sub", "when"), height=4)
         self.recent_tree.heading("#0", text="Video")
@@ -485,10 +514,30 @@ class App(tk.Tk):
         self.recent_tree.delete(*self.recent_tree.get_children())
         for r in data["recent"]:
             self.recent_tree.insert("", "end", text=r["title"], values=(r["sub"], r["when"]), tags=(r["file"],))
+        try:
+            self.free_label.configure(text=f"Free space where you save: {storage.human(storage.free_bytes(self.folder.get()))}")
+        except OSError:
+            pass
         on = subscriptions.schedule_installed()
         self.sched_btn.configure(text="Turn off background checks" if on else "Turn on background checks")
         self.sched_label.configure(text="On: checks happen hourly even when ytdl is closed." if on
                                    else "Off: checks only happen while this window is open.")
+
+    def change_storage(self, key, text):
+        value = 0 if text in ("Forever", "No limit", "Off") else int(text.split()[0])
+        storage.set_setting(key, value)
+        self.refresh_subscriptions()
+
+    def clean_now(self):
+        count, size = storage.cleanup(dry_run=True)
+        if not count:
+            messagebox.showinfo("ytdl", "Nothing to clean up with the current settings.")
+            return
+        if messagebox.askyesno("ytdl", f"Permanently delete {count} old subscription download(s), "
+                                       f"freeing {storage.human(size)}?\n\nOnly files downloaded by subscriptions are deleted."):
+            done, freed = storage.cleanup()
+            self.set_status(f"Removed {done} file(s), freed {storage.human(freed)}.")
+            self.refresh_subscriptions()
 
     def subscription_options(self):
         browser, cookies = self.current_auth()
@@ -547,8 +596,12 @@ class App(tk.Tk):
         self.tick_subscriptions()
 
     def tick_subscriptions(self):
-        if subscriptions.due():
+        storage.cleanup()
+        is_low, free = storage.low_space(self.folder.get())
+        if subscriptions.due() and not is_low:
             self.check_subscriptions()
+        elif is_low:
+            self.set_status(f"Subscriptions paused: only {storage.human(free)} free.")
         self.after(5 * 60 * 1000, self.tick_subscriptions)
 
     def selected_sub(self):
@@ -589,7 +642,7 @@ class App(tk.Tk):
         count = 0
         for sub, entries in found:
             for e in entries:
-                self.enqueue(e["url"], dict(sub["options"], playlist=False), e["title"])
+                self.enqueue(e["url"], dict(sub["options"], playlist=False), e["title"], sub["name"])
                 count += 1
         return count
 
@@ -736,10 +789,10 @@ class App(tk.Tk):
         self.picker.pack_forget()
 
     # ---- queue -----------------------------------------------------------
-    def enqueue(self, url, kwargs, title=None):
+    def enqueue(self, url, kwargs, title=None, sub_name=None):
         iid = str(self.next_id)
         self.next_id += 1
-        item = dict(id=iid, url=url, title=title or url, cancel=threading.Event(), kwargs=kwargs)
+        item = dict(id=iid, url=url, title=title or url, cancel=threading.Event(), kwargs=kwargs, sub_name=sub_name)
         self.items[iid] = item
         self.tree.insert("", "end", iid=iid, text=item["title"], values=("Queued", ""))
         self.jobs.put(item)
@@ -763,6 +816,10 @@ class App(tk.Tk):
         chosen = [self.picker_entries[i] for i in self.picker_list.curselection()] if self.picker_entries else []
         if self.picker_entries and self.picker_url in lines and not chosen:
             messagebox.showinfo("ytdl", "Select at least one video from the list.")
+            return
+        is_low, free = storage.low_space(self.folder.get())
+        if is_low and not messagebox.askyesno(
+                "ytdl", f"Only {storage.human(free)} of disk space is free where you're saving.\n\nContinue anyway?"):
             return
         browser, cookies = self.current_auth()
         sub = self.sub_lang.get()
@@ -815,11 +872,57 @@ class App(tk.Tk):
         return sum(1 for i in self.tree.get_children()
                    if self.tree.set(i, "status").split(" (")[0] in ("Queued", "Downloading", "Cancelling…", "Retrying"))
 
-    def on_close(self):
+    def start_tray(self):
+        if self.keep_running.get() and self.tray is None:
+            icon = tray.Tray(self.events, asset_path("icon.png"))
+            if icon.start():
+                self.tray = icon
+
+    def on_keep_running(self):
+        self.settings["tray"] = self.keep_running.get()
+        save_settings(self.settings)
+        if self.keep_running.get():
+            self.start_tray()
+        elif self.tray:
+            self.tray.stop()
+            self.tray = None
+
+    def update_tray(self):
+        """A one-line status for the tray icon's tooltip and menu."""
+        if self.tray:
+            running = [i for i in self.tree.get_children() if self.tree.set(i, "status") == "Downloading"]
+            waiting = self.active_count() - len(running)
+            if running:
+                pct = self.tree.set(running[0], "progress") or "starting"
+                text = f"Downloading {len(running)} ({pct})" + (f", {waiting} waiting" if waiting else "")
+            else:
+                text = f"{waiting} waiting" if waiting else "ytdl is idle"
+            self.tray.update(text)
+        self.after(2000, self.update_tray)
+
+    def show_window(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def quit_app(self):
         if self.active_count() and not messagebox.askyesno(
                 "ytdl", "Downloads are still running. Quit anyway?\n(Partial files resume if you start them again.)"):
             return
+        if self.tray:
+            self.tray.stop()
         self.destroy()
+
+    def on_close(self):
+        if self.tray:   # closing the window hides it; the tray icon keeps downloads and subscriptions going
+            self.withdraw()
+            if not self.settings.get("tray_told"):
+                self.settings["tray_told"] = True
+                save_settings(self.settings)
+                messagebox.showinfo("ytdl", f"ytdl is still running in the {tray.label()}, so downloads and "
+                                            "subscriptions carry on.\n\nChoose Quit ytdl from its menu to exit.")
+            return
+        self.quit_app()
 
     def worker(self):
         """Pulls queued downloads; how many run at once is the 'At once' setting."""
@@ -940,9 +1043,20 @@ class App(tk.Tk):
                         self.tree.set(a, "status", "Done")
                         self.tree.set(a, "progress", "100%")
                     self.record_history(b)
+                    sub_name = self.items.get(a, {}).get("sub_name")
+                    if sub_name:   # files from a subscription are remembered so storage cleanup can manage them
+                        subscriptions.add_recent(sub_name, self.items[a]["title"], b)
+                        self.refresh_subscriptions()
                 elif kind == "failed" and self.tree.exists(a):
                     self.tree.set(a, "status", "Failed")
                     self.tree.item(a, text=f"{self.items[a]['title']}  -  {b.splitlines()[0][:90]}")
+                elif kind == "tray":
+                    if a == "show":
+                        self.show_window()
+                    elif a == "check":
+                        self.check_subscriptions(True)
+                    elif a == "quit":
+                        self.quit_app()
                 elif kind == "followed":
                     n = self.enqueue_new_uploads([(a, b)])
                     self.set_status(f"Following {a['name']}." + (f" Downloading the latest {n}." if n else

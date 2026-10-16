@@ -10,6 +10,7 @@ ytdl is built on these projects. Their licenses apply to the parts of ytdl that 
 | [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) | Supplies the ffmpeg binary to the desktop apps | BSD-2-Clause |
 | [Pillow](https://python-pillow.org) | Thumbnails in the desktop preview | MIT-CMU (HPND) |
 | [PyInstaller](https://pyinstaller.org) | Packages the Mac and Windows apps | GPL-2.0 with an exception that allows packaged apps under any license |
+| [pystray](https://github.com/moses-palmer/pystray) | The desktop tray / menu-bar icon (on Mac it also pulls in PyObjC, MIT) | LGPL-3.0 |
 | Tk / Tcl, Python | The desktop window | Tcl/Tk license, PSF license |
 | AndroidX (including WorkManager), Jetpack Compose, Material 3, Kotlin coroutines | The Android app | Apache-2.0 |
 | Chrome, Edge, Brave or Chromium (already installed on your computer) | Desktop Threads support runs one in the background; ytdl does not include it | Each browser's own license |

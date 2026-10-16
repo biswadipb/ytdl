@@ -22,6 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -109,6 +113,8 @@ class MainActivity : ComponentActivity() {
     private fun takeSharedLink(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) {
             intent.getStringExtra(Intent.EXTRA_TEXT)?.let { vm.url = it.trim() }
+            // First time something is shared in: offer to remember the format so later shares download at once.
+            vm.sharePrompt = !SharePrefs.auto(this) && !SharePrefs.asked(this) && vm.url.isNotBlank()
         }
     }
 
@@ -151,6 +157,21 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
             }
         }
 
+        if (vm.sharePrompt) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Download shared links automatically from now on?", style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("Pick the format and quality below. Next time you share a link to ytdl it downloads at once with these choices.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = vm::downloadAndRemember) { Text("Download and remember") }
+                        TextButton(onClick = vm::dismissSharePrompt) { Text("Not now") }
+                    }
+                }
+            }
+        }
+
         vm.clipboardLink?.let { link ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -167,7 +188,7 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
         OutlinedTextField(
             value = vm.url, onValueChange = { vm.url = it },
             label = { Text("Video links") },
-            supportingText = { Text("YouTube, Instagram, X/Twitter, Facebook, Threads, Dailymotion. One per line.") },
+            supportingText = { Text("YouTube, Instagram, X/Twitter, Facebook, Threads, Dailymotion, TikTok, Reddit, Vimeo, Twitch, SoundCloud. One per line.") },
             modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 4,
         )
         OutlinedButton(onClick = vm::loadPreview, enabled = DownloadCenter.ready && !vm.previewLoading && vm.url.isNotBlank()) {
@@ -269,6 +290,24 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
             "These apply to automatic checks and the downloads they start. Check now and downloads you start yourself are never delayed.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        HorizontalDivider()
+        SectionTitle("Shared links")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Switch(vm.shareAuto, vm::chooseShareAuto)
+            Column {
+                Text(if (vm.shareAuto) "Download shared links immediately" else "Ask before downloading shared links")
+                Text("Saved choice: ${vm.shareSummary}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        OutlinedButton(onClick = vm::saveSharePreset) { Text("Use the format and quality selected above") }
+        Text(
+            "Channel, profile and playlist links are never started automatically; ytdl opens so you can choose.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+
+        HorizontalDivider()
+        StorageSection()
 
         HorizontalDivider()
         SectionTitle("Network")
@@ -426,5 +465,39 @@ private fun SubscriptionRow(sub: Subscription) {
             TextButton(onClick = { Subscriptions.setEnabled(sub.id, !sub.enabled) }) { Text(if (sub.enabled) "Pause" else "Resume") }
             TextButton(onClick = { Subscriptions.unfollow(sub.id) }) { Text("Unfollow") }
         }
+    }
+}
+
+@Composable
+private fun StorageSection() {
+    var confirm by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    SectionTitle("Storage for subscription downloads")
+    Text("Free space: ${humanSize(Storage.freeBytes)}" + if (Storage.isLow()) "  (low)" else "", style = MaterialTheme.typography.bodyMedium)
+    Text("Keep downloads for", style = MaterialTheme.typography.bodySmall)
+    ChipRow(listOf("0", "7", "30", "90"), Storage.keepDays.toString(), { Storage.chooseKeepDays(it.toInt()) })
+    Text("0 means forever", style = MaterialTheme.typography.bodySmall)
+    Text("Limit (GB, 0 = no limit)", style = MaterialTheme.typography.bodySmall)
+    ChipRow(listOf("0", "5", "10", "20", "50", "100"), Storage.maxGb.toString()) { Storage.chooseMaxGb(it.toInt()) }
+    Text("Warn and pause when free space is below (GB, 0 = off)", style = MaterialTheme.typography.bodySmall)
+    ChipRow(listOf("0", "1", "2", "5"), Storage.minFreeGb.toString()) { Storage.chooseMinFree(it.toInt()) }
+    OutlinedButton(onClick = {
+        val doomed = Storage.pending()
+        confirm = doomed.size to doomed.sumOf { it.size }
+    }) { Text("Clean up now") }
+    if (Subscriptions.lastNote.isNotEmpty()) Text(Subscriptions.lastNote, style = MaterialTheme.typography.bodySmall)
+    Text(
+        "Cleanup only deletes files that subscriptions downloaded, oldest first. Your own downloads are never touched.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    confirm?.let { (count, size) ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (count == 0) "Nothing to clean up" else "Delete $count file(s)?") },
+            text = { Text(if (count == 0) "The current settings don't call for deleting anything." else "This permanently deletes old subscription downloads and frees ${humanSize(size)}.") },
+            confirmButton = {
+                TextButton(onClick = { if (count > 0) Storage.cleanup(); confirm = null }) { Text(if (count == 0) "OK" else "Delete") }
+            },
+            dismissButton = { if (count > 0) TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
     }
 }

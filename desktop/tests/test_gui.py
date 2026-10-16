@@ -116,3 +116,35 @@ def test_subscription_check_queues_new_uploads_in_the_window(app, media_url, med
     assert pump(app, 60, lambda: statuses(app) == ["Done"])
     (iid,) = app.tree.get_children()
     assert app.items[iid]["url"] == media_url_2   # the new upload, not the video that was already there
+
+
+def test_closing_the_window_quits_when_there_is_no_tray(app):
+    app.tray = None
+    closed = []
+    app.destroy = lambda: closed.append(True)
+    app.on_close()
+    assert closed == [True]
+
+
+def test_closing_the_window_hides_it_when_the_tray_is_running(app, monkeypatch):
+    class FakeTray:
+        stopped = False
+        updates = []
+        def update(self, text): self.updates.append(text)
+        def stop(self): self.stopped = True
+    app.tray = FakeTray()
+    app.settings["tray_told"] = True           # skip the one-time explanation dialog
+    hidden = []
+    app.withdraw = lambda: hidden.append(True)
+    app.on_close()
+    assert hidden == [True] and not app.tray.stopped
+    app.update_tray()
+    assert app.tray.updates[-1] == "ytdl is idle"
+
+
+def test_tray_menu_actions_reach_the_window(app, monkeypatch):
+    shown = []
+    monkeypatch.setattr(app, "show_window", lambda: shown.append(True))
+    app.events.put(("tray", "show"))
+    pump(app, 2, lambda: bool(shown))
+    assert shown == [True]

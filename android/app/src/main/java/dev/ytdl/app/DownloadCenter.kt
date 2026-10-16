@@ -65,7 +65,7 @@ private val COVER_FORMATS = setOf("mp3", "flac", "opus", "mkv")
 private val MEDIA_EXTENSIONS = setOf("mp4", "mkv", "webm", "mp3", "m4a", "opus", "wav", "flac", "mov", "ogg", "srt")
 val LINK_PATTERN = Regex(
     "https?://([\\w-]+\\.)*(youtube\\.com|youtu\\.be|instagram\\.com|x\\.com|twitter\\.com|" +
-        "facebook\\.com|fb\\.watch|threads\\.(net|com)|dailymotion\\.com|dai\\.ly)/\\S+", RegexOption.IGNORE_CASE
+        "facebook\\.com|fb\\.watch|threads\\.(net|com)|dailymotion\\.com|dai\\.ly|tiktok\\.com|reddit\\.com|redd\\.it|vimeo\\.com|twitch\\.tv|soundcloud\\.com)/\\S+", RegexOption.IGNORE_CASE
 )
 
 enum class Status(val label: String) {
@@ -138,6 +138,7 @@ object DownloadCenter {
         parallel = prefs.getInt("parallel", 2).coerceIn(1, 3)
         autoRetry = prefs.getInt("retries", 2).coerceIn(0, 3)
         loadHistory()
+        Storage.init(application)
         scope.launch {
             try {
                 YoutubeDL.getInstance().init(app)
@@ -340,6 +341,7 @@ object DownloadCenter {
             files.forEach { f ->
                 val sub = f.parentFile?.relativeTo(dir)?.path.orEmpty()
                 val entry = saveToDownloads(f, sub)
+                if (item.subId != null) Storage.record(entry.uri, f.length())   // so storage cleanup may manage it
                 if (f.extension.lowercase() != "srt") {
                     addHistory(entry)
                     if (first == null) first = entry

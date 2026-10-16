@@ -31,3 +31,25 @@ fun isNight(hourOfDay: Int): Boolean = hourOfDay >= 23 || hourOfDay < 7
 
 /** The next check time rule for the background job: every subscription is checked hourly, if it is due. */
 const val CHECK_PERIOD_HOURS = 1L
+
+private val NO_PROFILES = mapOf(
+    "x.com" to "X", "twitter.com" to "X", "threads.com" to "Threads", "threads.net" to "Threads", "facebook.com" to "Facebook",
+)
+
+/** Why a link can't be followed, when we already know. Null means "worth trying". */
+fun unlistableReason(url: String): String? {
+    val host = Regex("""^https?://([^/]+)""").find(url.trim())?.groupValues?.get(1)?.lowercase()
+        ?.removePrefix("www.")?.removePrefix("m.")?.removePrefix("mobile.") ?: return null
+    val name = NO_PROFILES[host] ?: return null
+    return "$name doesn't let ytdl list a profile's posts, so profiles can't be followed. You can still download individual $name posts."
+}
+
+/** A plain-language message for a failed channel listing. */
+fun explainListingError(url: String, error: String): String = when {
+    "instagram.com" in url.lowercase() ->
+        "Instagram wouldn't list this profile. It usually needs you to be signed in (see Login for private posts), " +
+            "and Instagram often blocks profile listing even then. Individual posts and reels still download."
+    "Unsupported URL" in error ->
+        "ytdl can't follow that kind of link. Follow a YouTube channel or playlist, or another playlist-style link."
+    else -> error.lineSequence().firstOrNull { it.isNotBlank() }?.removePrefix("ERROR:")?.trim()?.take(200) ?: "Couldn't read that link."
+}

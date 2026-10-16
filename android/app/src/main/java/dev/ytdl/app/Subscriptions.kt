@@ -57,6 +57,8 @@ object Subscriptions {
         private set
     var onlyNight by mutableStateOf(false)
         private set
+    var lastNote by mutableStateOf("")
+        private set
 
     private val prefs get() = app.getSharedPreferences("ytdl", Context.MODE_PRIVATE)
     private val file get() = File(app.filesDir, "subscriptions.json")
@@ -94,12 +96,17 @@ object Subscriptions {
     // ---- listing ------------------------------------------------------------------
     /** (name, newest videos first). Blocks, so call from a background thread. */
     fun fetchEntries(url: String, limit: Int, options: Options? = null): Pair<String, List<Entry>> {
+        unlistableReason(url)?.let { throw IOException(it) }
         val req = YoutubeDLRequest(listingUrl(url))
         req.addOption("--flat-playlist")
         req.addOption("--dump-single-json")
         req.addOption("--playlist-end", "$limit")
         if (options?.useLogin != false) CookieStore.merged(app)?.let { req.addOption("--cookies", it.absolutePath) }
-        val out = YoutubeDL.getInstance().execute(req).out
+        val out = try {
+            YoutubeDL.getInstance().execute(req).out
+        } catch (e: Exception) {
+            throw IOException(explainListingError(url, e.message ?: ""))
+        }
         val json = JSONObject(out.substring(out.indexOf('{')))
         if (json.optString("_type") != "playlist") {
             throw IOException("That link is a single video. Follow a channel or playlist link instead.")
@@ -146,6 +153,8 @@ object Subscriptions {
     suspend fun checkAll(force: Boolean): Int = mutex.withLock {
         withContext(Dispatchers.IO) {
             DownloadCenter.awaitReady()
+            if (Storage.isLow()) { lastNote = "Paused: only ${humanSize(Storage.freeBytes)} free."; return@withContext 0 }
+            lastNote = ""
             var queued = 0
             for (sub in list.toList()) {
                 val now = System.currentTimeMillis()
@@ -230,9 +239,11 @@ class SubscriptionWorker(context: Context, params: WorkerParameters) : Coroutine
         Subscriptions.init(app, schedule = false)
         if (Subscriptions.onlyNight && !isNight(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))) return Result.success()
         return try {
+            Storage.cleanup()
             val queued = Subscriptions.checkAll(force = false)
             // The downloads run in this process, so stay alive until they finish (the system allows about ten minutes).
             if (queued > 0) DownloadCenter.awaitIdle(9 * 60_000L)
+            Storage.cleanup()
             Result.success()
         } catch (e: Exception) {
             Result.retry()

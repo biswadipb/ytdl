@@ -45,7 +45,7 @@ jobs:
           fi
           pyinstaller --noconfirm --windowed $EXTRA --name ytdl --icon "$ICON" \
             --add-data "../assets/icon.png${SEP}assets" \
-            --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
+            --collect-all yt_dlp --collect-all imageio_ffmpeg --collect-submodules pystray main.py
       - name: Check the built app starts (Mac)
         if: runner.os == 'macOS'
         run: desktop/dist/ytdl.app/Contents/MacOS/ytdl --help > /dev/null
