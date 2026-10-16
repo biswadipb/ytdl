@@ -78,6 +78,98 @@ jobs:
             ${{ matrix.name }}.dmg
             ${{ matrix.name }}.exe
 
+  minimal-desktop:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: ytdl-minimal-mac-apple-silicon
+          - os: macos-15-intel
+            name: ytdl-minimal-mac-intel
+          - os: windows-latest
+            name: ytdl-minimal-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: minimal/desktop
+        run: pip install -r requirements.txt -r requirements-build.txt
+      - name: Build app
+        working-directory: minimal/desktop
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ICON=../../assets/icon.ico; SEP=";"; EXTRA="--onefile"
+          else
+            ICON=../../assets/icon.icns; SEP=":"; EXTRA=""
+          fi
+          pyinstaller --noconfirm --windowed $EXTRA --name ytdl-minimal --icon "$ICON" \
+            --add-data "../../assets/icon.png${SEP}assets" --paths ../../desktop \
+            --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
+      - name: Check the built app starts (Mac)
+        if: runner.os == 'macOS'
+        run: minimal/desktop/dist/ytdl-minimal.app/Contents/MacOS/ytdl-minimal --selftest
+      - name: Check the built app starts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath minimal\desktop\dist\ytdl-minimal.exe -ArgumentList '--selftest' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "ytdl-minimal.exe --selftest exited with code $($p.ExitCode)" }
+      - name: Package (Mac)
+        if: runner.os == 'macOS'
+        working-directory: minimal/desktop/dist
+        run: |
+          mv ytdl-minimal.app "ytdl minimal.app"
+          ditto -c -k --sequesterRsrc --keepParent "ytdl minimal.app" "../../../${{ matrix.name }}.zip"
+          mkdir ../../../stage
+          ditto "ytdl minimal.app" "../../../stage/ytdl minimal.app"
+          ln -s /Applications ../../../stage/Applications
+          hdiutil create -quiet -volname "ytdl minimal" -srcfolder ../../../stage -format UDZO "../../../${{ matrix.name }}.dmg"
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cp minimal/desktop/dist/ytdl-minimal.exe "${{ matrix.name }}.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ matrix.name }}.zip
+            ${{ matrix.name }}.dmg
+            ${{ matrix.name }}.exe
+
+  minimal-android:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build APK
+        working-directory: minimal/android
+        run: |
+          chmod +x gradlew
+          ARGS=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+            IFS=. read -r MAJOR MINOR PATCH <<< "$V"
+            ARGS="-PappVersion=$V -PappVersionCode=$((MAJOR * 10000 + MINOR * 100 + PATCH))"
+          fi
+          ./gradlew --no-daemon :app:assembleDebug $ARGS
+      - name: Name the APK
+        run: cp minimal/android/app/build/outputs/apk/debug/app-universal-debug.apk ytdl-minimal-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytdl-minimal-android
+          path: ytdl-minimal-android.apk
+
   android:
     needs: tests
     runs-on: ubuntu-latest
@@ -108,7 +200,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [desktop, android]
+    needs: [desktop, android, minimal-desktop, minimal-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

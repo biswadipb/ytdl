@@ -1,0 +1,642 @@
+"""ytdl minimal: paste a link, choose video or audio, download. Nothing else.
+
+Uses the same download engine as the full app (desktop/ytdl.py).
+"""
+import json
+import os
+import queue
+import re
+import subprocess
+import sys
+import threading
+import tkinter as tk
+import tkinter.font as tkfont
+from tkinter import messagebox
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent.parent / "desktop"))   # the shared engine (also bundled by PyInstaller)
+
+import ytdl  # noqa: E402
+
+try:
+    from PIL import Image, ImageDraw, ImageTk
+except ImportError:
+    Image = ImageDraw = ImageTk = None
+
+SETTINGS = Path.home() / ".ytdl_minimal.json"
+
+PALETTES = {
+    "light": dict(bg="#FFFFFF", fg="#17172B", muted="#6B6B85", field="#FFFFFF", ring="#E8E7FD", accent="#4F46E5",
+                  btn="#4F46E5", btn_hover="#4338CA", btn_fg="#FFFFFF", seg="#F0F0F7", seg_on="#FFFFFF",
+                  seg_on_fg="#17172B", seg_fg="#6B6B85", drop="#F0F0F7", line="#EEEEF6", track="#E3E3EE",
+                  tick_fg="#FFFFFF", bad="#D93F3F", placeholder="#6B6B85"),
+    "dark": dict(bg="#14141D", fg="#ECECF6", muted="#8D8DA8", field="#1F1F2D", ring="#2D2A66", accent="#7B73F5",
+                 btn="#7B73F5", btn_hover="#6A62E8", btn_fg="#14141D", seg="#1F1F2D", seg_on="#2D2A66",
+                 seg_on_fg="#C9C5FF", seg_fg="#A3A3BB", drop="#1F1F2D", line="#26263A", track="#26263A",
+                 tick_fg="#14141D", bad="#FF7B7B", placeholder="#8D8DA8"),
+}
+VIDEO_CHOICES = [("Best", "best"), ("1080p", "1080"), ("720p", "720"), ("480p", "480")]
+AUDIO_CHOICES = [("MP3", "mp3"), ("M4A", "m4a")]
+NOT_SINGLE = re.compile(
+    r"(youtube\.com/(?:@[^/?#]+|channel/|c/|user/)[^?#]*$|youtube\.com/playlist|/sets/|instagram\.com/[^/?#]+/?$)", re.I)
+
+
+def system_mode():
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, timeout=2)
+            return "dark" if r.returncode == 0 and "dark" in r.stdout.lower() else "light"
+        if sys.platform == "win32":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
+    except Exception:
+        pass
+    return "light"
+
+
+def asset(name):
+    base = getattr(sys, "_MEIPASS", None)
+    return str(Path(base) / "assets" / name) if base else str(HERE.parent.parent / "assets" / name)
+
+
+def load_settings():
+    try:
+        return json.loads(SETTINGS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(data):
+    try:
+        SETTINGS.write_text(json.dumps(data))
+    except OSError:
+        pass
+
+
+def short(text, n=44):
+    return text if len(text) <= n else text[:n - 1] + "…"
+
+
+# ---- drawing --------------------------------------------------------------------------------------------
+_cache = {}
+
+
+def pill(canvas, x1, y1, x2, y2, r, fill, outline="", width=1, tag="bg"):
+    """A rounded rectangle. Vector on Mac (crisp on Retina); anti-aliased image elsewhere."""
+    r = max(0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
+    if sys.platform == "darwin" or Image is None:
+        pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2, x1, y2,
+               x1, y2 - r, x1, y1 + r, x1, y1]
+        return canvas.create_polygon(pts, smooth=True, fill=fill, outline=outline, width=width, tags=tag)
+    w, h = int(x2 - x1), int(y2 - y1)
+    key = (w, h, r, fill, outline, width)
+    if key not in _cache:
+        s = 4
+        img = Image.new("RGBA", (w * s, h * s), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        if outline:
+            d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=r * s, fill=outline)
+            i = width * s
+            d.rounded_rectangle((i, i, w * s - 1 - i, h * s - 1 - i), radius=max(0, r - width) * s, fill=fill)
+        else:
+            d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=r * s, fill=fill)
+        _cache[key] = ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS))
+    return canvas.create_image(x1, y1, image=_cache[key], anchor="nw", tags=tag)
+
+
+class Surface(tk.Canvas):
+    """A canvas that redraws itself when resized or re-themed."""
+
+    def __init__(self, parent, app, height, **kw):
+        super().__init__(parent, height=height, highlightthickness=0, bd=0, **kw)
+        self.app = app
+        self.bind("<Configure>", lambda e: self.redraw())
+
+    def redraw(self):
+        self.configure(bg=self.app.p["bg"])
+        self.delete("all")
+        self.paint(self.winfo_width(), self.winfo_height())
+
+    def paint(self, w, h):
+        raise NotImplementedError
+
+
+class Button(Surface):
+    def __init__(self, parent, app, text, command, height=48):
+        super().__init__(parent, app, height, cursor="hand2")
+        self.text, self.command, self.hover, self.enabled = text, command, False, True
+        self.bind("<Button-1>", lambda e: self.enabled and self.command())
+        self.bind("<Enter>", lambda e: self.set_hover(True))
+        self.bind("<Leave>", lambda e: self.set_hover(False))
+
+    def set_hover(self, on):
+        self.hover = on
+        self.redraw()
+
+    def paint(self, w, h):
+        p = self.app.p
+        pill(self, 0, 0, w, h, 14, p["btn_hover"] if self.hover else p["btn"])
+        self.create_text(w / 2, h / 2, text=self.text, fill=p["btn_fg"], font=self.app.font_bold)
+
+
+class Field(Surface):
+    """The paste box: a rounded outline with the link inside and a Paste button on the right."""
+
+    def __init__(self, parent, app, on_paste, height=48):
+        super().__init__(parent, app, height)
+        self.on_paste = on_paste
+        self.placeholder_on = True
+        self.entry = tk.Entry(self, relief="flat", bd=0, highlightthickness=0, font=app.font)
+        self.entry.bind("<FocusIn>", lambda e: self.focus_changed(True))
+        self.entry.bind("<FocusOut>", lambda e: self.focus_changed(False))
+        self.entry.bind("<Return>", lambda e: app.start_download())
+        self.focused = False
+
+    def focus_changed(self, focused):
+        self.focused = focused
+        if focused and self.placeholder_on:
+            self.entry.delete(0, "end")
+            self.placeholder_on = False
+        elif not focused and not self.entry.get():
+            self.placeholder_on = True
+        self.redraw()
+
+    def get(self):
+        return "" if self.placeholder_on else self.entry.get().strip()
+
+    def set(self, text):
+        self.placeholder_on = not text
+        self.entry.delete(0, "end")
+        if text:
+            self.entry.insert(0, text)
+        self.redraw()
+
+    def paint(self, w, h):
+        p = self.app.p
+        ring = p["accent"] if (self.focused or self.get()) else p["field"]
+        if self.focused:
+            pill(self, 0, 0, w, h, 16, p["ring"])
+        pill(self, 2, 2, w - 2, h - 2, 14, p["field"], outline=ring, width=2 if self.focused else 1)
+        fg = p["placeholder"] if self.placeholder_on else p["fg"]
+        self.entry.configure(bg=p["field"], fg=fg, insertbackground=p["fg"])
+        if self.placeholder_on:
+            self.entry.delete(0, "end")
+            self.entry.insert(0, "Paste a video link")
+        self.delete("entry")
+        self.create_window(16, h / 2, window=self.entry, anchor="w", width=max(40, w - 100), tags="entry")
+        self.create_text(w - 18, h / 2, text="Paste", fill=p["accent"], font=self.app.font_bold, anchor="e", tags="paste")
+        self.tag_bind("paste", "<Button-1>", lambda e: self.on_paste())
+        self.tag_bind("paste", "<Enter>", lambda e: self.configure(cursor="hand2"))
+        self.tag_bind("paste", "<Leave>", lambda e: self.configure(cursor=""))
+
+
+class Segmented(Surface):
+    def __init__(self, parent, app, labels, on_change, height=40):
+        super().__init__(parent, app, height, cursor="hand2")
+        self.labels, self.on_change, self.index = labels, on_change, 0
+        self.bind("<Button-1>", self.click)
+
+    def click(self, e):
+        i = 0 if e.x < self.winfo_width() / 2 else 1
+        if i != self.index:
+            self.index = i
+            self.redraw()
+            self.on_change(i)
+
+    def paint(self, w, h):
+        p = self.app.p
+        pill(self, 0, 0, w, h, 12, p["seg"])
+        half = (w - 6) / 2
+        pill(self, 3 + self.index * half, 3, 3 + (self.index + 1) * half, h - 3, 9, p["seg_on"])
+        for i, label in enumerate(self.labels):
+            on = i == self.index
+            self.create_text(3 + half * (i + 0.5), h / 2, text=label, fill=p["seg_on_fg"] if on else p["seg_fg"],
+                             font=self.app.font_bold if on else self.app.font)
+
+
+class Dropdown(Surface):
+    def __init__(self, parent, app, on_change, height=40):
+        super().__init__(parent, app, height, cursor="hand2")
+        self.choices, self.index, self.on_change = [], 0, on_change
+        self.bind("<Button-1>", self.open)
+
+    def set_choices(self, choices, index=0):
+        self.choices, self.index = choices, min(index, len(choices) - 1)
+        self.redraw()
+
+    def open(self, e):
+        menu = tk.Menu(self, tearoff=0)
+        for i, (label, _) in enumerate(self.choices):
+            menu.add_command(label=label, command=lambda i=i: self.pick(i))
+        menu.tk_popup(self.winfo_rootx(), self.winfo_rooty() + self.winfo_height())
+
+    def pick(self, i):
+        self.index = i
+        self.redraw()
+        self.on_change(i)
+
+    def paint(self, w, h):
+        p = self.app.p
+        pill(self, 0, 0, w, h, 12, p["drop"])
+        if self.choices:
+            self.create_text(14, h / 2, text=self.choices[self.index][0], fill=p["fg"], font=self.app.font, anchor="w")
+        self.create_text(w - 14, h / 2, text="▾", fill=p["muted"], font=self.app.font, anchor="e")
+
+
+class Dot(Surface):
+    """The round status marker in front of each download: a ring while working, a tick when done."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, app, 20, width=20)
+        self.state = "running"
+
+    def paint(self, w, h):
+        p = self.app.p
+        if self.state == "running":
+            self.create_oval(3, 3, 17, 17, outline=p["accent"], width=2)
+            self.create_arc(3, 3, 17, 17, start=60, extent=100, style="arc", outline=p["bg"], width=3)
+        elif self.state == "done":
+            self.create_oval(2, 2, 18, 18, fill=p["accent"], outline=p["accent"])
+            self.create_text(10, 10, text="✓", fill=p["tick_fg"], font=(self.app.font.actual("family"), 9, "bold"))
+        else:
+            self.create_oval(2, 2, 18, 18, fill=p["bad"], outline=p["bad"])
+            self.create_text(10, 10, text="!", fill=p["tick_fg"], font=(self.app.font.actual("family"), 9, "bold"))
+
+
+class Bar(Surface):
+    def __init__(self, parent, app):
+        super().__init__(parent, app, 4)
+        self.fraction = 0.0
+
+    def paint(self, w, h):
+        p = self.app.p
+        pill(self, 0, 0, w, h, 2, p["track"])
+        if self.fraction > 0:
+            pill(self, 0, 0, max(4, w * self.fraction), h, 2, p["accent"])
+
+
+class Row(tk.Frame):
+    """One download in this session."""
+
+    def __init__(self, parent, app, job):
+        super().__init__(parent, bd=0, highlightthickness=0)
+        self.app, self.job = app, job
+        self.columnconfigure(1, weight=1)
+        self.dot = Dot(self, app)
+        self.dot.grid(row=0, column=0, padx=(0, 10), pady=(10, 0), sticky="n")
+        self.title = tk.Label(self, anchor="w", bd=0, font=app.font)
+        self.title.grid(row=0, column=1, sticky="ew", pady=(10, 0))
+        self.right = tk.Label(self, anchor="e", bd=0, font=app.font_small)
+        self.right.grid(row=0, column=2, padx=(10, 0), pady=(10, 0))
+        self.cancel = tk.Label(self, text="Cancel", anchor="e", bd=0, font=app.font_small, cursor="hand2")
+        self.cancel.bind("<Button-1>", lambda e: app.cancel(job))
+        self.note = tk.Label(self, anchor="w", bd=0, font=app.font_small)
+        self.bar = Bar(self, app)
+        self.right.bind("<Button-1>", lambda e: app.row_action(job))
+        self.sep = tk.Frame(self, height=1, bd=0, highlightthickness=0)
+        self.sep.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 0))
+        self.refresh()
+
+    def refresh(self):
+        p, j = self.app.p, self.job
+        self.configure(bg=p["bg"])
+        for w in (self.title, self.right, self.cancel, self.note):
+            w.configure(bg=p["bg"])
+        self.title.configure(text=short(j["title"]), fg=p["fg"])
+        status = j["status"]
+        self.dot.state = {"done": "done", "failed": "failed", "cancelled": "failed"}.get(status, "running")
+        self.dot.redraw()
+        self.cancel.grid_forget()
+        self.note.grid_forget()
+        self.bar.grid_forget()
+        if status in ("queued", "running"):
+            pct = f"{int(j['progress'] * 100)}%" if status == "running" and j["progress"] else ("Starting" if status == "running" else "Waiting")
+            self.right.configure(text=pct, fg=p["muted"], cursor="")
+            self.cancel.configure(fg=p["accent"])
+            self.cancel.grid(row=0, column=3, padx=(10, 0), pady=(10, 0))
+            self.bar.grid(row=1, column=1, columnspan=3, sticky="ew", pady=(5, 0))
+            self.bar.fraction = j["progress"]
+            self.bar.redraw()
+        elif status == "done":
+            self.right.configure(text="Open", fg=p["accent"], cursor="hand2")
+        else:
+            self.right.configure(text="Retry", fg=p["accent"], cursor="hand2")
+            self.note.configure(text=short(j.get("error") or j["status"].capitalize(), 60), fg=p["muted"])
+            self.note.grid(row=1, column=1, columnspan=3, sticky="w")
+        self.sep.configure(bg=p["line"])
+
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except Exception:
+                pass
+        self.settings = load_settings()
+        self.mode = system_mode()
+        self.p = PALETTES[self.mode]
+        base = tkfont.nametofont("TkDefaultFont").actual("family")
+        self.font = tkfont.Font(family=base, size=13)
+        self.font_bold = tkfont.Font(family=base, size=13, weight="bold")
+        self.font_small = tkfont.Font(family=base, size=11)
+        self.font_title = tkfont.Font(family=base, size=17, weight="bold")
+        self.title("ytdl")
+        self.geometry("420x680")
+        self.minsize(360, 520)
+        try:
+            self.icon = tk.PhotoImage(file=asset("icon.png"))
+            self.iconphoto(True, self.icon)
+        except tk.TclError:
+            pass
+
+        self.events, self.jobs, self.rows, self.next_id = queue.Queue(), queue.Queue(), {}, 1
+        self.is_video = self.settings.get("mode", "video") == "video"
+        self.quality_index = {"video": self.settings.get("video_q", 0), "audio": self.settings.get("audio_q", 0)}
+        self.folder = self.settings.get("folder", ytdl.default_folder())
+
+        self.body = tk.Frame(self, bd=0, highlightthickness=0)
+        self.body.pack(fill="both", expand=True, padx=22, pady=(18, 16))
+        self.header = tk.Frame(self.body, bd=0, highlightthickness=0)
+        self.header.pack(fill="x", pady=(0, 14))
+        self.logo_img = self.small_logo()
+        self.logo = tk.Label(self.header, image=self.logo_img, bd=0) if self.logo_img else None
+        if self.logo:
+            self.logo.pack(side="left", padx=(0, 9))
+        self.name = tk.Label(self.header, text="ytdl", font=self.font_title, bd=0)
+        self.name.pack(side="left")
+
+        self.field = Field(self.body, self, self.paste)
+        self.field.pack(fill="x", pady=(0, 12))
+        self.go = Button(self.body, self, "Download", self.start_download)
+        self.go.pack(fill="x", pady=(0, 12))
+
+        self.opts = tk.Frame(self.body, bd=0, highlightthickness=0)
+        self.opts.pack(fill="x")
+        self.opts.columnconfigure(0, weight=22, uniform="o")
+        self.opts.columnconfigure(1, weight=10, uniform="o")
+        self.seg = Segmented(self.opts, self, ["Video", "Audio"], self.mode_changed)
+        self.seg.index = 0 if self.is_video else 1
+        self.seg.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.drop = Dropdown(self.opts, self, self.quality_changed)
+        self.drop.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.load_choices()
+
+        self.message = tk.Label(self.body, anchor="w", bd=0, font=self.font_small)
+        self.message.pack(fill="x", pady=(8, 0))
+
+        self.list_head = tk.Frame(self.body, bd=0, highlightthickness=0)
+        self.list_head.pack(fill="x", pady=(10, 0))
+        self.head_label = tk.Label(self.list_head, text="THIS SESSION", font=self.font_small, bd=0)
+        self.head_label.pack(side="left")
+        self.folder_link = tk.Label(self.list_head, text="Open folder", font=self.font_small, bd=0, cursor="hand2")
+        self.folder_link.pack(side="right")
+        self.folder_link.bind("<Button-1>", lambda e: self.open_folder())
+
+        self.scroll_canvas = tk.Canvas(self.body, bd=0, highlightthickness=0)
+        self.list_frame = tk.Frame(self.scroll_canvas, bd=0, highlightthickness=0)
+        self.scroll_canvas.pack(fill="both", expand=True)
+        self.window_id = self.scroll_canvas.create_window(0, 0, window=self.list_frame, anchor="nw")
+        self.list_frame.bind("<Configure>", lambda e: self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all")))
+        self.scroll_canvas.bind("<Configure>", lambda e: self.scroll_canvas.itemconfigure(self.window_id, width=e.width))
+        self.bind_all("<MouseWheel>", lambda e: self.scroll_canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+
+        self.apply_theme()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.bind("<FocusIn>", lambda e: self.grab_copied_link() if e.widget is self else None)
+        threading.Thread(target=self.worker, daemon=True).start()
+        threading.Thread(target=self.quiet_engine_update, daemon=True).start()
+        self.after(100, self.poll)
+        self.after(500, self.grab_copied_link)
+        self.after(5000, self.follow_system)
+
+    # ---- look ---------------------------------------------------------------
+    def small_logo(self):
+        if Image is None:
+            return None
+        try:
+            return ImageTk.PhotoImage(Image.open(asset("icon.png")).convert("RGBA").resize((26, 26), Image.LANCZOS))
+        except Exception:
+            return None
+
+    def apply_theme(self):
+        p = self.p
+        self.configure(bg=p["bg"])
+        for w in (self.body, self.header, self.opts, self.list_head, self.list_frame):
+            w.configure(bg=p["bg"])
+        self.scroll_canvas.configure(bg=p["bg"])
+        self.name.configure(bg=p["bg"], fg=p["fg"])
+        if self.logo:
+            self.logo.configure(bg=p["bg"])
+        self.head_label.configure(bg=p["bg"], fg=p["muted"])
+        self.folder_link.configure(bg=p["bg"], fg=p["accent"])
+        self.message.configure(bg=p["bg"], fg=p["muted"])
+        for s in (self.field, self.go, self.seg, self.drop):
+            s.redraw()
+        for row in self.rows.values():
+            row.refresh()
+
+    def follow_system(self):
+        mode = system_mode()
+        if mode != self.mode:
+            self.mode, self.p = mode, PALETTES[mode]
+            self.apply_theme()
+        self.after(5000, self.follow_system)
+
+    def say(self, text):
+        self.message.configure(text=text)
+
+    # ---- choices ------------------------------------------------------------
+    def kind(self):
+        return "video" if self.is_video else "audio"
+
+    def load_choices(self):
+        self.drop.set_choices(VIDEO_CHOICES if self.is_video else AUDIO_CHOICES, self.quality_index[self.kind()])
+
+    def mode_changed(self, index):
+        self.is_video = index == 0
+        self.load_choices()
+        self.remember()
+
+    def quality_changed(self, index):
+        self.quality_index[self.kind()] = index
+        self.remember()
+
+    def remember(self):
+        self.settings.update(mode=self.kind(), video_q=self.quality_index["video"], audio_q=self.quality_index["audio"],
+                             folder=self.folder)
+        save_settings(self.settings)
+
+    # ---- link box -----------------------------------------------------------
+    def clipboard_link(self):
+        try:
+            m = ytdl.SITE_PATTERN.search(self.clipboard_get())
+            return m.group(0) if m else None
+        except tk.TclError:
+            return None
+
+    def paste(self):
+        link = self.clipboard_link()
+        if link:
+            self.field.set(link)
+            self.say("")
+        else:
+            try:
+                self.field.set(self.clipboard_get().strip())
+            except tk.TclError:
+                self.say("Nothing to paste. Copy a video link first.")
+
+    def grab_copied_link(self):
+        """A copied link fills the box when you come back to the window. It never downloads by itself."""
+        link = self.clipboard_link()
+        if link and not self.field.get() and not self.field.focused:
+            self.field.set(link)
+
+    # ---- downloads ----------------------------------------------------------
+    def start_download(self):
+        text = self.field.get()
+        m = ytdl.SITE_PATTERN.search(text)
+        url = m.group(0) if m else (text if text.startswith("http") else "")
+        if not url:
+            self.say("Paste a video link first.")
+            return
+        if NOT_SINGLE.search(url):
+            self.say("That looks like a channel or playlist. The full ytdl app handles those.")
+            return
+        self.say("")
+        quality = self.drop.choices[self.drop.index][1]
+        kwargs = dict(output=self.folder, fmt="mp4" if self.is_video else quality,
+                      quality=quality if self.is_video else "best", extras=True)
+        self.add_job(url, kwargs)
+        self.field.set("")
+
+    def add_job(self, url, kwargs, title=None):
+        job = dict(id=self.next_id, url=url, title=title or url, status="queued", progress=0.0, files=[], error="",
+                   cancel=threading.Event(), kwargs=kwargs)
+        self.next_id += 1
+        row = Row(self.list_frame, self, job)
+        row.pack(fill="x", before=self.first_row() if self.rows else None)
+        self.rows[job["id"]] = row
+        self.jobs.put(job)
+
+    def first_row(self):
+        slaves = self.list_frame.pack_slaves()   # in on-screen order, so the newest download goes above all others
+        return slaves[0] if slaves else None
+
+    def cancel(self, job):
+        job["cancel"].set()
+        if job["status"] == "queued":
+            self.set_status(job, "cancelled")
+
+    def row_action(self, job):
+        if job["status"] == "done" and job["files"]:
+            self.reveal(job["files"][0], select=True)
+        elif job["status"] in ("failed", "cancelled"):
+            job.update(status="queued", progress=0.0, error="", cancel=threading.Event())
+            self.rows[job["id"]].refresh()
+            self.jobs.put(job)
+
+    def set_status(self, job, status, error=""):
+        job["status"], job["error"] = status, error
+        self.rows[job["id"]].refresh()
+
+    def open_folder(self):
+        os.makedirs(os.path.expanduser(self.folder), exist_ok=True)
+        self.reveal(os.path.expanduser(self.folder))
+
+    @staticmethod
+    def reveal(path, select=False):
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", path] if select else ["open", path])
+        elif sys.platform == "win32":
+            if select:
+                subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+            else:
+                os.startfile(path)
+        else:
+            subprocess.run(["xdg-open", os.path.dirname(path) if select else path])
+
+    def worker(self):
+        while True:
+            job = self.jobs.get()
+            if job["cancel"].is_set():
+                self.events.put(("status", job, "cancelled", ""))
+                continue
+            self.events.put(("status", job, "running", ""))
+            self.run_job(job)
+
+    def run_job(self, job):
+        def hook(d):
+            if job["cancel"].is_set():
+                raise ytdl.Cancelled()
+            title = (d.get("info_dict") or {}).get("title")
+            if title:
+                self.events.put(("title", job, title))
+            if d["status"] == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                if total:
+                    self.events.put(("progress", job, d["downloaded_bytes"] / total))
+
+        for attempt in range(2):      # one automatic retry for hiccups such as a dropped connection
+            try:
+                files = ytdl.download_one(job["url"], hooks=[hook], quiet=True, **job["kwargs"])
+                self.events.put(("done", job, files))
+                return
+            except ytdl.Cancelled:
+                self.events.put(("status", job, "cancelled", ""))
+                return
+            except Exception as e:  # noqa: BLE001
+                message = str(e).replace("ERROR: ", "").splitlines()[0] if str(e) else "Download failed"
+                if job["cancel"].is_set():
+                    self.events.put(("status", job, "cancelled", ""))
+                    return
+                if attempt == 0 and ytdl.is_transient(message):
+                    continue
+                self.events.put(("status", job, "failed", message))
+                return
+
+    def poll(self):
+        try:
+            while True:
+                kind, job, *rest = self.events.get_nowait()
+                row = self.rows.get(job["id"])
+                if kind == "status":
+                    self.set_status(job, rest[0], rest[1])
+                elif kind == "title":
+                    job["title"] = rest[0]
+                    row and row.refresh()
+                elif kind == "progress":
+                    job["progress"] = rest[0]
+                    row and row.refresh()
+                elif kind == "done":
+                    job["files"], job["progress"] = rest[0], 1.0
+                    self.set_status(job, "done")
+        except queue.Empty:
+            pass
+        self.after(150, self.poll)
+
+    def quiet_engine_update(self):
+        try:
+            ytdl.update_engine()    # applies the next time ytdl starts
+        except Exception:
+            pass
+
+    def active(self):
+        return sum(1 for r in self.rows.values() if r.job["status"] in ("queued", "running"))
+
+    def on_close(self):
+        if self.active() and not messagebox.askyesno("ytdl", "Downloads are still running. Quit anyway?"):
+            return
+        self.destroy()
+
+
+def main():
+    App().mainloop()
+
+
+if __name__ == "__main__":
+    main()
