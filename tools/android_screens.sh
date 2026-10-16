@@ -24,7 +24,7 @@ screens() {   # $1 = suffix for the file names
   # Sharing a link opens the first-time "download shared links automatically?" card.
   adb logcat -c
   adb shell am start -W -a android.intent.action.SEND -t text/plain \
-    --es android.intent.extra.TEXT "Me at the zoo https://youtu.be/jNQXAC9IVRw" -n $PKG/.ShareActivity || true
+    --es android.intent.extra.TEXT "'Me at the zoo https://youtu.be/jNQXAC9IVRw'" -n $PKG/.ShareActivity || true
   sleep 45                       # the first launch unpacks the download engine
   echo "--- foreground after launch ($1):"
   adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -3 || true
