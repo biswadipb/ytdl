@@ -133,3 +133,19 @@ def test_a_queued_download_can_be_cancelled(win, media):
     second = win.rows[2].job
     win.cancel(second)
     assert pump(win, 60, lambda: second["status"] == "cancelled")
+
+
+def test_drawing_a_tiny_or_negative_sized_widget_does_not_crash(win):
+    """Regression: before a widget is laid out its size is about 1 pixel, which crashed the image-based drawing."""
+    for box in [(0, 0, 1, 1), (2, 2, -2, -2), (0, 0, 0, 40), (5, 5, 5, 5)]:
+        minimal.pill(win.field, *box, 10, "#ffffff")
+    minimal.pill(win.field, 0, 0, 100, 40, 14, "#ffffff", outline="#000000", width=2)
+
+
+def test_the_image_based_drawing_path_works_on_every_system(win, monkeypatch):
+    """Mac draws with vectors; Windows and Linux use anti-aliased images. Make sure that path is exercised here too."""
+    monkeypatch.setattr(minimal.sys, "platform", "linux")
+    minimal._cache.clear()
+    win.apply_theme()
+    win.update()
+    assert minimal._cache, "expected images to be generated"

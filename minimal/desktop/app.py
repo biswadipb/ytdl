@@ -85,6 +85,8 @@ _cache = {}
 
 def pill(canvas, x1, y1, x2, y2, r, fill, outline="", width=1, tag="bg"):
     """A rounded rectangle. Vector on Mac (crisp on Retina); anti-aliased image elsewhere."""
+    if x2 - x1 < 2 or y2 - y1 < 2:      # the widget hasn't been given its real size yet
+        return None
     r = max(0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
     if sys.platform == "darwin" or Image is None:
         pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2, x1, y2,
