@@ -64,11 +64,11 @@ def test_quality_cap_and_speed_limit(tmp_path):
 
 
 def test_naming_and_folder_rules_shape_the_path(tmp_path):
-    opts = ytdl.build_options(str(tmp_path), naming="channel-title", folders="site-channel")
-    assert "%(extractor_key)s/%(uploader,channel|Unknown)s/" in opts["outtmpl"]
-    assert "%(title)" in opts["outtmpl"]
-    flat = ytdl.build_options(str(tmp_path), folders="flat")["outtmpl"]
-    assert flat.startswith(str(tmp_path)) and "/%(extractor_key)s" not in flat
+    template = lambda **kw: ytdl.build_options(str(tmp_path), **kw)["outtmpl"].replace("\\", "/")  # Windows joins with \\
+    nested = template(naming="channel-title", folders="site-channel")
+    assert "%(extractor_key)s/%(uploader,channel|Unknown)s/" in nested
+    assert "%(title)" in nested
+    assert "/%(extractor_key)s" not in template(folders="flat")
 
 
 def test_clip_adds_range_and_label(tmp_path):
