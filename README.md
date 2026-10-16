@@ -60,6 +60,8 @@ Log in to the site in Chrome, Firefox, Safari, Edge or Brave, then choose that b
 **Use login from** (CLI: `-b chrome`). Your browser data stays on your computer; on Mac you may see a
 Keychain prompt. The Android app can't borrow a login, so it only handles public posts.
 
+**Theme:** choose System, Light or Dark with the Theme option (bottom of the desktop window, bottom of the Android screen). System follows your device setting, and your choice is remembered.
+
 If downloads suddenly fail, YouTube changed something. On Android tap **Update engine**.
 On desktop, install the newest release (or `pip install -U yt-dlp` when running from source).
 

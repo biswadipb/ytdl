@@ -22,6 +22,7 @@ import java.io.File
 val QUALITIES = listOf("best", "1080", "720", "480", "360")
 val VIDEO_FORMATS = listOf("mp4", "mkv", "webm")
 val AUDIO_FORMATS = listOf("mp3", "m4a", "opus", "wav", "flac")
+val THEMES = listOf("System", "Light", "Dark")
 
 class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var url by mutableStateOf("")
@@ -33,6 +34,15 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     var status by mutableStateOf("Starting up…")
     var busy by mutableStateOf(false)
     var ready by mutableStateOf(false)
+
+    private val prefs = app.getSharedPreferences("ytdl", Application.MODE_PRIVATE)
+    var theme by mutableStateOf(prefs.getString("theme", "System") ?: "System")
+        private set
+
+    fun chooseTheme(choice: String) {
+        theme = choice
+        prefs.edit().putString("theme", choice).apply()
+    }
 
     private var job: Job? = null
 

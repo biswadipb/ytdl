@@ -1,4 +1,5 @@
 """Simple desktop window for ytdl (tkinter, ships with Python)."""
+import json
 import os
 import queue
 import subprocess
@@ -18,36 +19,107 @@ def asset_path(name):
     return os.path.join(os.path.dirname(__file__), "..", "assets", name)
 
 
-ACCENT = "#4F46E5"      # logo purple
-ACCENT_DARK = "#4338CA"
-ACCENT_SOFT = "#A5A1F0"
-BG = "#F7F7FB"
+SETTINGS = os.path.join(os.path.expanduser("~"), ".ytdl_settings.json")
+THEME_CHOICES = ["System", "Light", "Dark"]
+
+PALETTES = {
+    "light": dict(bg="#F7F7FB", fg="#1F1F2E", muted="#55556B", field="#FFFFFF", border="#C9C9D9",
+                  trough="#E4E4EE", button="#ECECF4", button_hover="#E0E0EC",
+                  accent="#4F46E5", accent_dark="#4338CA", accent_soft="#A5A1F0"),
+    "dark": dict(bg="#16161F", fg="#EDEDF5", muted="#A0A0B8", field="#1F1F2B", border="#3A3A4D",
+                 trough="#2A2A3A", button="#2A2A3A", button_hover="#34344A",
+                 accent="#6D64F0", accent_dark="#5B52E0", accent_soft="#47427F"),
+}
 
 
-def apply_theme(root):
+def load_theme_choice():
+    try:
+        with open(SETTINGS) as f:
+            choice = json.load(f).get("theme", "System")
+        return choice if choice in THEME_CHOICES else "System"
+    except (OSError, ValueError):
+        return "System"
+
+
+def save_theme_choice(choice):
+    try:
+        with open(SETTINGS, "w") as f:
+            json.dump({"theme": choice}, f)
+    except OSError:
+        pass  # remembering the theme is a convenience only
+
+
+def system_mode():
+    """'dark' or 'light', following the operating system setting."""
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
+                               capture_output=True, text=True, timeout=2)
+            return "dark" if r.returncode == 0 and "dark" in r.stdout.lower() else "light"
+        if sys.platform == "win32":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
+    except Exception:
+        pass
+    return "light"
+
+
+def find_widgets(parent, kind):
+    found = []
+    for child in parent.winfo_children():
+        if isinstance(child, kind):
+            found.append(child)
+        found.extend(find_widgets(child, kind))
+    return found
+
+
+def resolve_mode(choice):
+    return system_mode() if choice == "System" else choice.lower()
+
+
+def apply_theme(root, mode):
     """Purple 'clam' theme so the window looks the same on Mac and Windows (native themes force blue)."""
+    p = PALETTES[mode]
     s = ttk.Style(root)
     s.theme_use("clam")
-    root.configure(bg=BG)
+    root.configure(bg=p["bg"])
+    s.configure(".", background=p["bg"], foreground=p["fg"])
     for w in ("TFrame", "TLabel", "TCheckbutton"):
-        s.configure(w, background=BG)
-    s.configure("TButton", padding=(12, 5))
-    s.configure("Accent.TButton", background=ACCENT, foreground="white", borderwidth=0, padding=(16, 6))
-    s.map("Accent.TButton", background=[("disabled", ACCENT_SOFT), ("active", ACCENT_DARK)],
+        s.configure(w, background=p["bg"], foreground=p["fg"])
+    s.configure("TButton", padding=(12, 5), background=p["button"], foreground=p["fg"],
+                bordercolor=p["border"], lightcolor=p["button"], darkcolor=p["button"])
+    s.map("TButton", background=[("active", p["button_hover"]), ("disabled", p["bg"])],
+          foreground=[("disabled", p["muted"])])
+    s.configure("Accent.TButton", background=p["accent"], foreground="white", borderwidth=0,
+                padding=(16, 6), lightcolor=p["accent"], darkcolor=p["accent"])
+    s.map("Accent.TButton", background=[("disabled", p["accent_soft"]), ("active", p["accent_dark"])],
           foreground=[("disabled", "white")])
-    s.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#E4E4EE", borderwidth=0)
-    s.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", BG)])
-    s.map("TCombobox", selectbackground=[("readonly", "white")], selectforeground=[("readonly", "black")],
-          fieldbackground=[("readonly", "white")])
-    s.configure("TEntry", selectbackground=ACCENT, selectforeground="white")
-    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+    s.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["trough"], borderwidth=0)
+    s.configure("TCheckbutton", indicatorbackground=p["field"], indicatorforeground="white")
+    s.map("TCheckbutton", indicatorcolor=[("selected", p["accent"])], background=[("active", p["bg"])])
+    s.configure("TCombobox", fieldbackground=p["field"], background=p["button"], foreground=p["fg"],
+                arrowcolor=p["fg"], bordercolor=p["border"], selectbackground=p["field"],
+                selectforeground=p["fg"], lightcolor=p["field"], darkcolor=p["field"])
+    s.map("TCombobox", fieldbackground=[("readonly", p["field"])], foreground=[("readonly", p["fg"])],
+          selectbackground=[("readonly", p["field"])], selectforeground=[("readonly", p["fg"])])
+    s.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"], insertcolor=p["fg"],
+                bordercolor=p["border"], selectbackground=p["accent"], selectforeground="white",
+                lightcolor=p["field"], darkcolor=p["field"])
+    root.option_add("*TCombobox*Listbox.background", p["field"])
+    root.option_add("*TCombobox*Listbox.foreground", p["fg"])
+    root.option_add("*TCombobox*Listbox.selectBackground", p["accent"])
     root.option_add("*TCombobox*Listbox.selectForeground", "white")
+    return p
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        apply_theme(self)
+        self.theme_choice = tk.StringVar(value=load_theme_choice())
+        self.mode = resolve_mode(self.theme_choice.get())
+        apply_theme(self, self.mode)
         self.title("ytdl")
         try:
             self.icon = tk.PhotoImage(file=asset_path("icon.png"))
@@ -64,8 +136,7 @@ class App(tk.Tk):
         frm.columnconfigure(1, weight=1)
 
         ttk.Label(frm, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)").grid(row=0, column=0, columnspan=3, sticky="w", **pad)
-        self.urls = tk.Text(frm, height=4, wrap="none", selectbackground=ACCENT, selectforeground="white",
-                            relief="solid", borderwidth=1, highlightthickness=0)
+        self.urls = tk.Text(frm, height=4, wrap="none", relief="solid", borderwidth=1, highlightthickness=0)
         self.urls.grid(row=1, column=0, columnspan=3, sticky="ew", **pad)
 
         ttk.Label(frm, text="Save to").grid(row=2, column=0, sticky="w", **pad)
@@ -94,8 +165,14 @@ class App(tk.Tk):
         ttk.Checkbutton(opts2, text="All videos in playlist/post", variable=self.playlist).pack(side="left", padx=(0, 16))
         ttk.Label(opts2, text="Use login from").pack(side="left")
         self.browser = tk.StringVar(value="none")
-        ttk.Combobox(opts2, textvariable=self.browser, values=["none"] + ytdl.BROWSERS,
-                     width=9, state="readonly").pack(side="left", padx=6)
+        browser_box = ttk.Combobox(opts2, textvariable=self.browser, values=["none"] + ytdl.BROWSERS,
+                                   width=9, state="readonly")
+        browser_box.pack(side="left", padx=(6, 16))
+        ttk.Label(opts2, text="Theme").pack(side="left")
+        theme_box = ttk.Combobox(opts2, textvariable=self.theme_choice, values=THEME_CHOICES,
+                                 width=7, state="readonly")
+        theme_box.pack(side="left", padx=6)
+        theme_box.bind("<<ComboboxSelected>>", self.on_theme_change)
 
         self.btn = ttk.Button(frm, text="Download", style="Accent.TButton", command=self.start)
         self.btn.grid(row=5, column=0, **pad, sticky="w")
@@ -103,12 +180,45 @@ class App(tk.Tk):
 
         self.bar = ttk.Progressbar(frm, maximum=100)
         self.bar.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
-        self.log = tk.Text(frm, height=8, state="disabled", wrap="word", selectbackground=ACCENT,
-                           selectforeground="white", relief="solid", borderwidth=1, highlightthickness=0)
+        self.log = tk.Text(frm, height=8, state="disabled", wrap="word", relief="solid", borderwidth=1, highlightthickness=0)
         self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", **pad)
         frm.rowconfigure(7, weight=1)
 
+        self.comboboxes = find_widgets(self, ttk.Combobox)
+        self.restyle_widgets()
         self.after(100, self.poll)
+        self.after(5000, self.follow_system)
+
+    def restyle_widgets(self):
+        """Colors that ttk styles don't reach: the plain Text boxes and combobox dropdown lists."""
+        p = PALETTES[self.mode]
+        for t in (self.urls, self.log):
+            t.configure(bg=p["field"], fg=p["fg"], insertbackground=p["fg"], selectbackground=p["accent"],
+                        selectforeground="white", highlightbackground=p["border"])
+            t.configure(relief="solid", borderwidth=1)
+        for cb in self.comboboxes:
+            try:
+                pop = self.tk.call("ttk::combobox::PopdownWindow", str(cb))
+                self.tk.call(f"{pop}.f.l", "configure", "-background", p["field"], "-foreground", p["fg"],
+                             "-selectbackground", p["accent"], "-selectforeground", "white")
+            except tk.TclError:
+                pass
+
+    def on_theme_change(self, _event=None):
+        save_theme_choice(self.theme_choice.get())
+        self.set_mode(resolve_mode(self.theme_choice.get()))
+
+    def set_mode(self, mode):
+        self.mode = mode
+        apply_theme(self, mode)
+        self.restyle_widgets()
+
+    def follow_system(self):
+        if self.theme_choice.get() == "System":
+            mode = system_mode()
+            if mode != self.mode:
+                self.set_mode(mode)
+        self.after(5000, self.follow_system)
 
     def pick_folder(self):
         d = filedialog.askdirectory(initialdir=self.folder.get())
