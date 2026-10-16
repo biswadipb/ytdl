@@ -18,9 +18,36 @@ def asset_path(name):
     return os.path.join(os.path.dirname(__file__), "..", "assets", name)
 
 
+ACCENT = "#4F46E5"      # logo purple
+ACCENT_DARK = "#4338CA"
+ACCENT_SOFT = "#A5A1F0"
+BG = "#F7F7FB"
+
+
+def apply_theme(root):
+    """Purple 'clam' theme so the window looks the same on Mac and Windows (native themes force blue)."""
+    s = ttk.Style(root)
+    s.theme_use("clam")
+    root.configure(bg=BG)
+    for w in ("TFrame", "TLabel", "TCheckbutton"):
+        s.configure(w, background=BG)
+    s.configure("TButton", padding=(12, 5))
+    s.configure("Accent.TButton", background=ACCENT, foreground="white", borderwidth=0, padding=(16, 6))
+    s.map("Accent.TButton", background=[("disabled", ACCENT_SOFT), ("active", ACCENT_DARK)],
+          foreground=[("disabled", "white")])
+    s.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#E4E4EE", borderwidth=0)
+    s.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", BG)])
+    s.map("TCombobox", selectbackground=[("readonly", "white")], selectforeground=[("readonly", "black")],
+          fieldbackground=[("readonly", "white")])
+    s.configure("TEntry", selectbackground=ACCENT, selectforeground="white")
+    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+    root.option_add("*TCombobox*Listbox.selectForeground", "white")
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        apply_theme(self)
         self.title("ytdl")
         try:
             self.icon = tk.PhotoImage(file=asset_path("icon.png"))
@@ -37,7 +64,8 @@ class App(tk.Tk):
         frm.columnconfigure(1, weight=1)
 
         ttk.Label(frm, text="Links to videos or posts: YouTube, Instagram, X, Facebook, Threads (one per line)").grid(row=0, column=0, columnspan=3, sticky="w", **pad)
-        self.urls = tk.Text(frm, height=4, wrap="none")
+        self.urls = tk.Text(frm, height=4, wrap="none", selectbackground=ACCENT, selectforeground="white",
+                            relief="solid", borderwidth=1, highlightthickness=0)
         self.urls.grid(row=1, column=0, columnspan=3, sticky="ew", **pad)
 
         ttk.Label(frm, text="Save to").grid(row=2, column=0, sticky="w", **pad)
@@ -69,13 +97,14 @@ class App(tk.Tk):
         ttk.Combobox(opts2, textvariable=self.browser, values=["none"] + ytdl.BROWSERS,
                      width=9, state="readonly").pack(side="left", padx=6)
 
-        self.btn = ttk.Button(frm, text="Download", command=self.start)
+        self.btn = ttk.Button(frm, text="Download", style="Accent.TButton", command=self.start)
         self.btn.grid(row=5, column=0, **pad, sticky="w")
         ttk.Button(frm, text="Open folder", command=self.open_folder).grid(row=5, column=1, **pad, sticky="w")
 
         self.bar = ttk.Progressbar(frm, maximum=100)
         self.bar.grid(row=6, column=0, columnspan=3, sticky="ew", **pad)
-        self.log = tk.Text(frm, height=8, state="disabled", wrap="word")
+        self.log = tk.Text(frm, height=8, state="disabled", wrap="word", selectbackground=ACCENT,
+                           selectforeground="white", relief="solid", borderwidth=1, highlightthickness=0)
         self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", **pad)
         frm.rowconfigure(7, weight=1)
 

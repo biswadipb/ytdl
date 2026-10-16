@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 HERE = Path(__file__).parent
-BG, FG = (15, 23, 42), (163, 230, 53)
+BG, FG = (79, 70, 229), (255, 255, 255)
 SS = 4  # supersampling factor for smooth edges
 
 

@@ -12,7 +12,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+
+private val PurpleScheme = lightColorScheme(
+    primary = Color(0xFF4F46E5),
+    onPrimary = Color.White,
+    secondaryContainer = Color(0xFFE0E0FF),
+    onSecondaryContainer = Color(0xFF1E1B6B),
+    surfaceTint = Color(0xFF4F46E5),
+)
 
 class MainActivity : ComponentActivity() {
     private val vm: DownloadViewModel by viewModels()
@@ -20,7 +29,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         takeSharedLink(intent)
-        setContent { MaterialTheme { Surface { Screen(vm) } } }
+        setContent { MaterialTheme(colorScheme = PurpleScheme) { Surface { Screen(vm) } } }
     }
 
     override fun onNewIntent(intent: Intent) {
