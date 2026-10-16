@@ -135,6 +135,10 @@ Every push and every release runs automated checks: unit tests, real downloads o
 cd desktop && pip install -r requirements.txt pytest && python -m pytest -q
 ```
 
+## License
+
+ytdl is free software under the [GNU General Public License v3.0](LICENSE). That license is required because the apps include GPL-licensed components (see below).
+
 ## Third-party software
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

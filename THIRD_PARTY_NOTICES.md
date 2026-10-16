@@ -13,4 +13,4 @@ ytdl is built on these projects. Their licenses apply to the parts of ytdl that 
 | Tk / Tcl, Python | The desktop window | Tcl/Tk license, PSF license |
 | AndroidX, Jetpack Compose, Material 3, Kotlin coroutines | The Android app | Apache-2.0 |
 
-Because the apps include GPL-licensed components, the complete source code for ytdl is available in this repository, and ytdl itself needs a license that is compatible with them.
+Because the apps include GPL-licensed components, ytdl is released under the GPL-3.0 (see [LICENSE](LICENSE)), and its complete source code is in this repository.
