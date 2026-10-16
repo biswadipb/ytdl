@@ -31,12 +31,13 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            pyinstaller --noconfirm --onefile --windowed --name ytdl \
-              --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
+            ICON=../assets/icon.ico; SEP=";"; EXTRA="--onefile"
           else
-            pyinstaller --noconfirm --windowed --name ytdl \
-              --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
+            ICON=../assets/icon.icns; SEP=":"; EXTRA=""
           fi
+          pyinstaller --noconfirm --windowed $EXTRA --name ytdl --icon "$ICON" \
+            --add-data "../assets/icon.png${SEP}assets" \
+            --collect-all yt_dlp --collect-all imageio_ffmpeg main.py
       - name: Package (Mac)
         if: runner.os == 'macOS'
         working-directory: desktop/dist

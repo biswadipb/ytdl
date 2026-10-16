@@ -6,6 +6,7 @@
     <application
         android:allowBackup="false"
         android:extractNativeLibs="true"
+        android:icon="@mipmap/ic_launcher"
         android:label="ytdl"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity

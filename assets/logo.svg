@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
+  <title>ytdl</title>
+  <rect width="160" height="160" rx="36" fill="#0F172A"/>
+  <g fill="none" stroke="#A3E635" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="80" y1="34" x2="80" y2="88"/>
+    <polyline points="54,66 80,92 106,66"/>
+    <path d="M44 108 v18 h72 v-18"/>
+  </g>
+</svg>

@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" width="128" alt="ytdl logo"></p>
+
 # ytdl
 
 Download videos from **YouTube, Instagram, X/Twitter and Facebook** to your own device, as
@@ -83,6 +85,11 @@ git tag v1.0.1 && git push origin v1.0.1
 Mac and Windows apps must be built on those systems, which is why CI does it.
 Local Android build: open `android/` in Android Studio, or `cd android && ./gradlew :app:assembleDebug`.
 The APK is debug-signed so it installs directly.
+
+## Logo
+
+Master design: `assets/logo.svg`. To regenerate the PNG, `.ico` and `.icns` files:
+`pip install pillow && python assets/make_icons.py`.
 
 ## How it works
 

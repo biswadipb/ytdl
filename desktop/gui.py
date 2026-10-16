@@ -10,10 +10,23 @@ from tkinter import filedialog, messagebox, ttk
 import ytdl
 
 
+def asset_path(name):
+    """Bundled copy when packaged by PyInstaller, repo copy when run from source."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return os.path.join(base, "assets", name)
+    return os.path.join(os.path.dirname(__file__), "..", "assets", name)
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ytdl")
+        try:
+            self.icon = tk.PhotoImage(file=asset_path("icon.png"))
+            self.iconphoto(True, self.icon)
+        except tk.TclError:
+            pass  # missing icon is cosmetic only
         self.minsize(620, 440)
         self.events = queue.Queue()
         self.busy = False
