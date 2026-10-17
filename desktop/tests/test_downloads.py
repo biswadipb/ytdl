@@ -47,10 +47,22 @@ def test_naming_and_folder_rules(media_url, tmp_path):
     assert rel[0] == "Generic" and rel[1] == "Unknown" and rel[2].startswith("Unknown - sample")
 
 
-def test_speed_limit_slows_the_download(media_url, tmp_path):
-    started = time.time()
-    ytdl.download_one(media_url, output=str(tmp_path), fmt="mp4", ratelimit=20_000)
-    assert time.time() - started > 2  # the test file is ~100 KB, so 20 KB/s takes seconds
+def test_speed_limit_reaches_the_downloader(media_url, tmp_path, monkeypatch):
+    """The limit must be handed to yt-dlp. (Timing a tiny file is unreliable: it can arrive in one burst.)"""
+    seen = {}
+    real = ytdl.yt_dlp.YoutubeDL
+
+    class Recording(real):
+        def __init__(self, params=None, *a, **k):
+            seen.update(params or {})
+            super().__init__(params, *a, **k)
+
+    monkeypatch.setattr(ytdl.yt_dlp, "YoutubeDL", Recording)
+    ytdl.download_one(media_url, output=str(tmp_path), fmt="mp4", ratelimit=123_000)
+    assert seen["ratelimit"] == 123_000
+    seen.clear()
+    ytdl.download_one(media_url, output=str(tmp_path / "again"), fmt="mp4")
+    assert "ratelimit" not in seen                      # no limit unless asked for
 
 
 def test_cancel_stops_a_download(media_url, tmp_path):
