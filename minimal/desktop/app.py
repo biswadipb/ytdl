@@ -488,7 +488,7 @@ class App(tk.Tk):
 
         self.list_head = tk.Frame(self.body, bd=0, highlightthickness=0)
         self.list_head.pack(fill="x", pady=(10, 0))
-        self.head_label = tk.Label(self.list_head, text="DOWNLOADS", font=self.font_small, bd=0)
+        self.head_label = tk.Label(self.list_head, text="Downloads", font=self.font_small, bd=0)
         self.head_label.pack(side="left")
         self.folder_link = tk.Label(self.list_head, text="Open folder", font=self.font_small, bd=0, cursor="hand2")
         self.folder_link.pack(side="right")
