@@ -42,7 +42,7 @@ Prefer something simpler? **ytdl minimal** is a small, separate app for Mac, Win
 | Windows | `ytdl-minimal-windows.exe` |
 | Android | `ytdl-minimal-android.apk` |
 
-Install steps are the same as the full app below. It works with the same sites, uses the same download engine (and keeps it updated quietly), and saves to `Downloads/ytdl`. What it leaves out on purpose: queues you manage, subscriptions, sign-in for private posts, clipping, subtitles, naming and folder rules, speed limits and storage controls. Channel and playlist links are refused with a note to use the full app. A copied link fills the box when you return to the app, but nothing downloads until you press **Download**. The code is in [`minimal/`](minimal).
+Install steps are the same as the full app below. It works with the same sites, uses the same download engine (and keeps it updated quietly), and saves to `Downloads/ytdl` unless you choose another folder with **Change** under the Video / Audio row (**Default** puts it back). What it leaves out on purpose: queues you manage, subscriptions, sign-in for private posts, clipping, subtitles, naming and folder rules, speed limits and storage controls. Channel and playlist links are refused with a note to use the full app. A copied link fills the box when you return to the app, but nothing downloads until you press **Download**. The code is in [`minimal/`](minimal).
 
 ## Screenshots
 
@@ -84,7 +84,7 @@ Open the [**Releases** page](https://github.com/biswadipb/ytdl/releases/latest) 
 2. Pick a format (video or audio only), a quality, and optionally a clip (start and end times like `1:30` and `2:45`).
 3. Tap **Add to queue**. Downloads run one after another, each with its own progress and a Cancel button. Finished files are listed under **History**.
 
-Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in their name so they never overwrite a video.
+Files go to `Downloads/ytdl` on every platform unless you pick another folder (a "Save to" box on desktop, **Choose folder** on Android). Audio files get "(audio)" in their name so they never overwrite a video.
 
 ### Features
 
@@ -107,6 +107,7 @@ Files go to `Downloads/ytdl` on every platform. Audio files get "(audio)" in the
 | Engine update | Yes, automatic at launch plus a button | Yes, automatic on Wi-Fi plus a button |
 | Follow channels and playlists, new uploads download automatically | Yes, even when ytdl is closed (a scheduled job) | Yes, even when the app is closed (WorkManager) |
 | Only while charging / only at night | n/a | Yes, for automatic downloads |
+| Choose where files are saved (default `Downloads/ytdl`) | Yes: Save to / Browse | Yes: folder picker, including an SD card |
 | Share a link from another app and it downloads at once | n/a | Yes, with the format you chose once |
 | Storage controls: keep for N days, size limit, low-space warning | Yes | Yes |
 | Tray / menu-bar icon, keeps working with the window closed | Yes | n/a (uses a notification) |

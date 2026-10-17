@@ -54,6 +54,7 @@ object Downloads {
     fun init(application: Application) {
         if (this::app.isInitialized) return
         app = application
+        SaveTarget.refresh(application)
         scope.launch {
             try {
                 YoutubeDL.getInstance().init(app)
@@ -172,17 +173,6 @@ object Downloads {
         }
     }
 
-    /** Copy a finished file into the public Downloads/ytdl folder (no storage permission needed). */
-    private fun saveToDownloads(file: File): String {
-        val resolver = app.contentResolver
-        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension) ?: "application/octet-stream"
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, file.name)
-            put(MediaStore.Downloads.MIME_TYPE, mime)
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/ytdl")
-        }
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Could not create file in Downloads")
-        resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
-        return uri.toString()
-    }
+    /** Copy a finished file to the folder you chose (default: the public Downloads/ytdl folder). */
+    private fun saveToDownloads(file: File): String = SaveTarget.save(app, file)
 }

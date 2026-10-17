@@ -57,6 +57,10 @@ private val DarkScheme = darkColorScheme(
 class MainActivity : ComponentActivity() {
     private val vm: DownloadViewModel by viewModels()
 
+    private val folderPicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) SaveTarget.choose(this, uri)
+    }
+
     private val notificationPermission =
         registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
 
@@ -80,7 +84,7 @@ class MainActivity : ComponentActivity() {
                 WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !dark
             }
             MaterialTheme(colorScheme = if (dark) DarkScheme else LightScheme) {
-                Surface(Modifier.fillMaxSize()) { Screen(vm, ::openLogin, ::openFile) }
+                Surface(Modifier.fillMaxSize()) { Screen(vm, ::openLogin, ::openFile, { folderPicker.launch(null) }) }
             }
         }
     }
@@ -136,7 +140,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (HistoryEntry) -> Unit) {
+private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (HistoryEntry) -> Unit, onPickFolder: () -> Unit) {
     Column(
         Modifier.fillMaxSize().systemBarsPadding().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -305,6 +309,17 @@ private fun Screen(vm: DownloadViewModel, onLogin: (Site) -> Unit, onOpen: (Hist
             "Channel, profile and playlist links are never started automatically; ytdl opens so you can choose.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        HorizontalDivider()
+        SectionTitle("Save location")
+        val context = LocalContext.current
+        Text("Saving to ${SaveTarget.label}", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onPickFolder) { Text("Choose folder") }
+            if (SaveTarget.isCustom) TextButton(onClick = { SaveTarget.useDefault(context) }) { Text("Use default") }
+        }
+        if (SaveTarget.note.isNotEmpty()) Text(SaveTarget.note, style = MaterialTheme.typography.bodySmall)
+        Text("The default is Downloads/ytdl. Pick any folder you like, including an SD card.", style = MaterialTheme.typography.bodySmall)
 
         HorizontalDivider()
         StorageSection()

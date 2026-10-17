@@ -68,6 +68,10 @@ private val Dark = Palette(
 class MainActivity : ComponentActivity() {
     private val vm: MinimalViewModel by viewModels()
 
+    private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) SaveTarget.choose(this, uri)
+    }
+
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +89,7 @@ class MainActivity : ComponentActivity() {
             val view = LocalView.current
             SideEffect { WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !p.dark }
             MaterialTheme(colorScheme = if (p.dark) darkColorScheme(surface = p.field, onSurface = p.fg) else lightColorScheme()) {
-                Screen(vm, p, ::openFile, ::openDownloads, ::pasteFromClipboard)
+                Screen(vm, p, ::openFile, ::openDownloads, ::pasteFromClipboard) { folderPicker.launch(null) }
             }
         }
     }
@@ -147,7 +151,7 @@ private fun LogoMark(size: Int) {
 }
 
 @Composable
-private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit, onFolder: () -> Unit, onPaste: () -> Unit) {
+private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit, onFolder: () -> Unit, onPaste: () -> Unit, onPickFolder: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(p.bg).systemBarsPadding().imePadding().padding(horizontal = 22.dp).padding(top = 14.dp),
     ) {
@@ -171,6 +175,19 @@ private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit,
             Spacer(Modifier.width(8.dp))
             QualityDropdown(vm, p, Modifier.weight(1f))
         }
+        val context = LocalContext.current
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Saving to ${SaveTarget.label}", color = p.muted, fontSize = 12.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            Spacer(Modifier.weight(1f))
+            if (SaveTarget.isCustom) {
+                Text("Default", color = p.accent, fontSize = 12.sp, modifier = Modifier.clickable { SaveTarget.useDefault(context) })
+                Spacer(Modifier.width(12.dp))
+            }
+            Text("Change", color = p.accent, fontSize = 12.sp, modifier = Modifier.clickable { onPickFolder() })
+        }
+        if (SaveTarget.note.isNotEmpty()) Text(SaveTarget.note, color = p.muted, fontSize = 11.sp)
         if (vm.message.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(vm.message, color = p.muted, fontSize = 12.sp)

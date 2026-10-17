@@ -80,8 +80,11 @@ object Storage {
         val gone = mutableSetOf<String>()
         for (f in doomed) {
             try {
-                val removed = app.contentResolver.delete(Uri.parse(f.ref), null, null)
-                if (removed > 0) { count++; freed += f.size }
+                val uri = Uri.parse(f.ref)
+                // Files in the default folder are media-store entries; files in a folder you chose are documents.
+                val removed = if (uri.authority == "media") app.contentResolver.delete(uri, null, null) > 0
+                else android.provider.DocumentsContract.deleteDocument(app.contentResolver, uri)
+                if (removed) { count++; freed += f.size }
                 gone.add(f.ref)          // deleted, or already gone: either way forget it
             } catch (e: Exception) { /* can't delete right now: keep the record and try later */ }
         }

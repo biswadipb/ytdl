@@ -11,7 +11,7 @@ import sys
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -76,6 +76,18 @@ def save_settings(data):
         SETTINGS.write_text(json.dumps(data))
     except OSError:
         pass
+
+
+def shown_path(folder):
+    """A folder as a person would write it: ~/Downloads/ytdl instead of /Users/name/Downloads/ytdl."""
+    home = str(Path.home())
+    text = str(folder)
+    return "~" + text[len(home):] if text == home or text.startswith(home + os.sep) else text
+
+
+def short_middle(text, n=34):
+    """Keeps the end of a long path, since that's the part that tells folders apart."""
+    return text if len(text) <= n else "…" + text[-(n - 1):]
 
 
 def short(text, n=44):
@@ -401,8 +413,18 @@ class App(tk.Tk):
         self.drop.grid(row=0, column=1, sticky="ew", padx=(4, 0))
         self.load_choices()
 
+        self.where = tk.Frame(self.body, bd=0, highlightthickness=0)
+        self.where.pack(fill="x", pady=(10, 0))
+        self.where_label = tk.Label(self.where, anchor="w", bd=0, font=self.font_small)
+        self.where_label.pack(side="left")
+        self.change_link = tk.Label(self.where, text="Change", bd=0, font=self.font_small, cursor="hand2")
+        self.change_link.pack(side="right")
+        self.change_link.bind("<Button-1>", lambda e: self.choose_folder())
+        self.default_link = tk.Label(self.where, text="Default", bd=0, font=self.font_small, cursor="hand2")
+        self.default_link.bind("<Button-1>", lambda e: self.use_default_folder())
+
         self.message = tk.Label(self.body, anchor="w", bd=0, font=self.font_small)
-        self.message.pack(fill="x", pady=(8, 0))
+        self.message.pack(fill="x", pady=(6, 0))
 
         self.list_head = tk.Frame(self.body, bd=0, highlightthickness=0)
         self.list_head.pack(fill="x", pady=(10, 0))
@@ -453,7 +475,7 @@ class App(tk.Tk):
         p = self.p
         self.configure(bg=p["bg"])
         self.theme_seg.index = THEMES.index(self.theme)
-        for w in (self.body, self.header, self.opts, self.list_head, self.list_frame):
+        for w in (self.body, self.header, self.opts, self.list_head, self.list_frame, self.where):
             w.configure(bg=p["bg"])
         self.scroll_canvas.configure(bg=p["bg"])
         self.name.configure(bg=p["bg"], fg=p["fg"])
@@ -462,6 +484,10 @@ class App(tk.Tk):
         self.head_label.configure(bg=p["bg"], fg=p["muted"])
         self.folder_link.configure(bg=p["bg"], fg=p["accent"])
         self.message.configure(bg=p["bg"], fg=p["muted"])
+        self.where_label.configure(bg=p["bg"], fg=p["muted"])
+        self.change_link.configure(bg=p["bg"], fg=p["accent"])
+        self.default_link.configure(bg=p["bg"], fg=p["accent"])
+        self.show_folder()
         for s in (self.field, self.go, self.seg, self.drop, self.theme_seg):
             s.redraw()
         for row in self.rows.values():
@@ -476,6 +502,29 @@ class App(tk.Tk):
 
     def say(self, text):
         self.message.configure(text=text)
+
+    # ---- where files go -----------------------------------------------------
+    def is_default_folder(self):
+        return os.path.normpath(os.path.expanduser(self.folder)) == os.path.normpath(os.path.expanduser(ytdl.default_folder()))
+
+    def show_folder(self):
+        self.where_label.configure(text="Saving to " + short_middle(shown_path(os.path.expanduser(self.folder))))
+        self.default_link.pack_forget()
+        if not self.is_default_folder():
+            self.default_link.pack(side="right", padx=(0, 12))
+
+    def choose_folder(self):
+        chosen = filedialog.askdirectory(initialdir=os.path.expanduser(self.folder) if os.path.isdir(os.path.expanduser(self.folder))
+                                         else str(Path.home()), title="Choose where to save", mustexist=False)
+        if chosen:
+            self.folder = chosen
+            self.remember()
+            self.show_folder()
+
+    def use_default_folder(self):
+        self.folder = ytdl.default_folder()
+        self.remember()
+        self.show_folder()
 
     # ---- choices ------------------------------------------------------------
     def kind(self):

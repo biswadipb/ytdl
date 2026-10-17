@@ -224,3 +224,52 @@ def test_the_saved_theme_is_used_at_start(tmp_path, monkeypatch):
         assert window.theme == "dark" and window.mode == "dark"
     finally:
         window.destroy()
+
+
+def test_default_save_folder_is_downloads_ytdl(tmp_path, monkeypatch):
+    monkeypatch.setattr(minimal, "SETTINGS", tmp_path / "s.json")
+    monkeypatch.setattr(minimal.ytdl, "update_engine", lambda: (False, "ok"))
+    window = minimal.App()
+    try:
+        assert window.is_default_folder()
+        assert minimal.shown_path(window.folder).replace("\\", "/").endswith("Downloads/ytdl")
+        assert "Saving to" in window.where_label.cget("text") and not window.default_link.winfo_ismapped()
+    finally:
+        window.destroy()
+
+
+def test_choosing_a_folder_is_used_remembered_and_can_be_reset(win, tmp_path, monkeypatch):
+    target = tmp_path / "My Videos"
+    monkeypatch.setattr(minimal.filedialog, "askdirectory", lambda **k: str(target))
+    win.choose_folder()
+    win.update()
+    assert win.folder == str(target) and not win.is_default_folder()
+    assert win.default_link.winfo_ismapped()                              # a "Default" link appears for custom folders
+    assert minimal.json.loads((tmp_path / "settings.json").read_text())["folder"] == str(target)
+    win.use_default_folder()
+    win.update()
+    assert win.is_default_folder() and not win.default_link.winfo_ismapped()
+
+
+def test_cancelling_the_folder_dialog_changes_nothing(win, monkeypatch):
+    before = win.folder
+    monkeypatch.setattr(minimal.filedialog, "askdirectory", lambda **k: "")
+    win.choose_folder()
+    assert win.folder == before
+
+
+def test_downloads_land_in_the_chosen_folder(win, media, tmp_path, monkeypatch):
+    target = tmp_path / "picked folder"
+    monkeypatch.setattr(minimal.filedialog, "askdirectory", lambda **k: str(target))
+    win.choose_folder()
+    win.field.set(media["one"])
+    win.start_download()
+    assert pump(win, 60, lambda: statuses(win) == ["done"]), statuses(win)
+    saved = Path(next(iter(win.rows.values())).job["files"][0])
+    assert saved.parent == target and saved.exists()
+
+
+def test_long_paths_keep_their_ending(win):
+    long_path = "/Users/someone/Documents/a/very/long/path/that/keeps/going/to/Videos"
+    assert minimal.short_middle(long_path).endswith("to/Videos") and len(minimal.short_middle(long_path)) <= 34
+    assert minimal.shown_path(str(Path.home() / "Downloads" / "ytdl")).replace("\\", "/") == "~/Downloads/ytdl"
