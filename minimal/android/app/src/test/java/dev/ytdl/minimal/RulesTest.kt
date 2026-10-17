@@ -73,8 +73,9 @@ class RulesTest {
         assertEquals(listOf("https://v/1.mp4"), scrape.videos); assertNull(scrape.image)
     }
 
-    @Test fun themeCyclesAutoLightDarkAndRecoversFromJunk() {
-        assertEquals("light", nextTheme("auto")); assertEquals("dark", nextTheme("light")); assertEquals("auto", nextTheme("dark"))
-        assertEquals("auto", nextTheme("nonsense"))
+    @Test fun themeChoicesMatchTheirLabelsAndJunkMeansAuto() {
+        assertEquals(listOf("auto", "light", "dark"), THEMES)
+        assertEquals(listOf("Auto", "Light", "Dark"), THEME_LABELS)
+        assertEquals("dark", cleanTheme("dark")); assertEquals("auto", cleanTheme("sepia")); assertEquals("auto", cleanTheme(null))
     }
 }

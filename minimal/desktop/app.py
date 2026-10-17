@@ -64,11 +64,6 @@ def asset(name):
 THEMES = ["auto", "light", "dark"]
 
 
-def next_theme(current):
-    """Auto, then Light, then Dark, then back to Auto."""
-    return THEMES[(THEMES.index(current) + 1) % len(THEMES)] if current in THEMES else "auto"
-
-
 def load_settings():
     try:
         return json.loads(SETTINGS.read_text())
@@ -201,13 +196,16 @@ class Field(Surface):
 
 
 class Segmented(Surface):
-    def __init__(self, parent, app, labels, on_change, height=40):
-        super().__init__(parent, app, height, cursor="hand2")
-        self.labels, self.on_change, self.index = labels, on_change, 0
+    """A switch with two or more labels, one of them selected (Video | Audio, Auto | Light | Dark)."""
+
+    def __init__(self, parent, app, labels, on_change, height=40, width=None, small=False):
+        extra = {"width": width} if width else {}
+        super().__init__(parent, app, height, cursor="hand2", **extra)
+        self.labels, self.on_change, self.index, self.small = labels, on_change, 0, small
         self.bind("<Button-1>", self.click)
 
     def click(self, e):
-        i = 0 if e.x < self.winfo_width() / 2 else 1
+        i = min(len(self.labels) - 1, max(0, int(e.x / (self.winfo_width() / len(self.labels)))))
         if i != self.index:
             self.index = i
             self.redraw()
@@ -215,13 +213,16 @@ class Segmented(Surface):
 
     def paint(self, w, h):
         p = self.app.p
-        pill(self, 0, 0, w, h, 12, p["seg"])
-        half = (w - 6) / 2
-        pill(self, 3 + self.index * half, 3, 3 + (self.index + 1) * half, h - 3, 9, p["seg_on"])
+        radius, inner = (9, 7) if self.small else (12, 9)
+        pill(self, 0, 0, w, h, radius, p["seg"])
+        part = (w - 6) / len(self.labels)
+        pill(self, 3 + self.index * part, 3, 3 + (self.index + 1) * part, h - 3, inner, p["seg_on"])
+        regular = self.app.font_small if self.small else self.app.font
+        bold = self.app.font_small_bold if self.small else self.app.font_bold
         for i, label in enumerate(self.labels):
             on = i == self.index
-            self.create_text(3 + half * (i + 0.5), h / 2, text=label, fill=p["seg_on_fg"] if on else p["seg_fg"],
-                             font=self.app.font_bold if on else self.app.font)
+            self.create_text(3 + part * (i + 0.5), h / 2, text=label, fill=p["seg_on_fg"] if on else p["seg_fg"],
+                             font=bold if on else regular)
 
 
 class Dropdown(Surface):
@@ -354,6 +355,7 @@ class App(tk.Tk):
         self.font = tkfont.Font(family=base, size=13)
         self.font_bold = tkfont.Font(family=base, size=13, weight="bold")
         self.font_small = tkfont.Font(family=base, size=11)
+        self.font_small_bold = tkfont.Font(family=base, size=11, weight="bold")
         self.font_title = tkfont.Font(family=base, size=17, weight="bold")
         self.title("ytdl")
         self.geometry("420x680")
@@ -379,9 +381,9 @@ class App(tk.Tk):
             self.logo.pack(side="left", padx=(0, 9))
         self.name = tk.Label(self.header, text="ytdl", font=self.font_title, bd=0)
         self.name.pack(side="left")
-        self.theme_link = tk.Label(self.header, font=self.font_small, bd=0, cursor="hand2")
-        self.theme_link.pack(side="right")
-        self.theme_link.bind("<Button-1>", lambda e: self.cycle_theme())
+        self.theme_seg = Segmented(self.header, self, ["Auto", "Light", "Dark"], self.choose_theme, height=30, width=168, small=True)
+        self.theme_seg.index = THEMES.index(self.theme)
+        self.theme_seg.pack(side="right")
 
         self.field = Field(self.body, self, self.paste)
         self.field.pack(fill="x", pady=(0, 12))
@@ -439,8 +441,8 @@ class App(tk.Tk):
     def resolve_mode(self):
         return system_mode() if self.theme == "auto" else self.theme
 
-    def cycle_theme(self):
-        self.theme = next_theme(self.theme)
+    def choose_theme(self, index):
+        self.theme = THEMES[index]
         self.settings["theme"] = self.theme
         save_settings(self.settings)
         self.mode = self.resolve_mode()
@@ -450,7 +452,7 @@ class App(tk.Tk):
     def apply_theme(self):
         p = self.p
         self.configure(bg=p["bg"])
-        self.theme_link.configure(text=f"Theme: {self.theme.capitalize()}", bg=p["bg"], fg=p["muted"])
+        self.theme_seg.index = THEMES.index(self.theme)
         for w in (self.body, self.header, self.opts, self.list_head, self.list_frame):
             w.configure(bg=p["bg"])
         self.scroll_canvas.configure(bg=p["bg"])
@@ -460,7 +462,7 @@ class App(tk.Tk):
         self.head_label.configure(bg=p["bg"], fg=p["muted"])
         self.folder_link.configure(bg=p["bg"], fg=p["accent"])
         self.message.configure(bg=p["bg"], fg=p["muted"])
-        for s in (self.field, self.go, self.seg, self.drop):
+        for s in (self.field, self.go, self.seg, self.drop, self.theme_seg):
             s.redraw()
         for row in self.rows.values():
             row.refresh()

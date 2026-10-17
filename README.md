@@ -31,7 +31,7 @@ Only download videos you have the right to save. YouTube's Terms of Service rest
 
 ## ytdl minimal: just the basics
 
-Prefer something simpler? **ytdl minimal** is a small, separate app for Mac, Windows and Android with only the essentials: paste a link, choose **Video** or **Audio**, pick a quality, tap **Download**, and watch this session's downloads. The layout is identical on desktop and phone, and it follows your system's light or dark setting. Tap **Theme** in the top corner to switch between Auto, Light and Dark.
+Prefer something simpler? **ytdl minimal** is a small, separate app for Mac, Windows and Android with only the essentials: paste a link, choose **Video** or **Audio**, pick a quality, tap **Download**, and watch this session's downloads. The layout is identical on desktop and phone, and it follows your system's light or dark setting. Use the small **Auto / Light / Dark** switch in the top corner to override it.
 
 <p align="center"><img src="docs/screenshots/minimal-desktop-light.png" width="260" alt="ytdl minimal on desktop, light"> <img src="docs/screenshots/minimal-desktop-dark.png" width="260" alt="ytdl minimal on desktop, dark"> <img src="docs/screenshots/minimal-android-light.png" width="170" alt="ytdl minimal on Android, light"> <img src="docs/screenshots/minimal-android-dark.png" width="170" alt="ytdl minimal on Android, dark"></p>
 

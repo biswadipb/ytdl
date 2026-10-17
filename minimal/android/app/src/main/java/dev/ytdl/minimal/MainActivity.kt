@@ -155,8 +155,8 @@ private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit,
             LogoMark(26)
             Text("ytdl", color = p.fg, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            Text("Theme: ${vm.theme.replaceFirstChar { it.uppercase() }}", color = p.muted, fontSize = 12.sp,
-                modifier = Modifier.clickable { vm.cycleTheme() }.padding(vertical = 6.dp))
+            SegmentedControl(THEME_LABELS, THEMES.indexOf(vm.theme), { vm.chooseTheme(THEMES[it]) }, p,
+                Modifier.width(168.dp), height = 30.dp, fontSize = 11.sp, corner = 9.dp, inner = 7.dp)
         }
         Spacer(Modifier.height(14.dp))
         LinkField(vm, p, onPaste)
@@ -211,19 +211,28 @@ private fun LinkField(vm: MinimalViewModel, p: Palette, onPaste: () -> Unit) {
     }
 }
 
+/** One switch used everywhere: Video | Audio, and Auto | Light | Dark. */
 @Composable
-private fun Segmented(vm: MinimalViewModel, p: Palette, modifier: Modifier) {
-    Row(modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).background(p.seg).padding(3.dp)) {
-        listOf("Video" to false, "Audio" to true).forEach { (label, isAudio) ->
-            val on = vm.audio == isAudio
+private fun SegmentedControl(
+    labels: List<String>, selected: Int, onSelect: (Int) -> Unit, p: Palette, modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 40.dp, fontSize: androidx.compose.ui.unit.TextUnit = 13.sp,
+    corner: androidx.compose.ui.unit.Dp = 12.dp, inner: androidx.compose.ui.unit.Dp = 9.dp,
+) {
+    Row(modifier.height(height).clip(RoundedCornerShape(corner)).background(p.seg).padding(3.dp)) {
+        labels.forEachIndexed { i, label ->
+            val on = i == selected
             Box(
-                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(9.dp)).background(if (on) p.segOn else Color.Transparent)
-                    .clickable { vm.chooseMode(isAudio) },
+                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(inner)).background(if (on) p.segOn else Color.Transparent)
+                    .clickable { onSelect(i) },
                 contentAlignment = Alignment.Center,
-            ) { Text(label, color = if (on) p.segOnFg else p.segFg, fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal) }
+            ) { Text(label, color = if (on) p.segOnFg else p.segFg, fontSize = fontSize, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal) }
         }
     }
 }
+
+@Composable
+private fun Segmented(vm: MinimalViewModel, p: Palette, modifier: Modifier) =
+    SegmentedControl(listOf("Video", "Audio"), if (vm.audio) 1 else 0, { vm.chooseMode(it == 1) }, p, modifier)
 
 @Composable
 private fun QualityDropdown(vm: MinimalViewModel, p: Palette, modifier: Modifier) {

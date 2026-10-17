@@ -162,36 +162,56 @@ def test_a_second_window_does_not_reuse_the_first_windows_images(tmp_path, monke
         window.destroy()
 
 
-def test_theme_link_cycles_auto_light_dark_and_is_remembered(win, tmp_path, monkeypatch):
+def test_header_has_an_auto_light_dark_switch_built_like_video_audio(win):
+    assert win.theme_seg.labels == ["Auto", "Light", "Dark"]
+    assert isinstance(win.theme_seg, type(win.seg))                 # the very same kind of control as Video | Audio
+    words = [w.cget("text") for w in win.header.winfo_children() if isinstance(w, minimal.tk.Label) and w.cget("text")]
+    assert words == ["ytdl"]                                          # no "Theme:" caption, just the switch
+
+
+def _click(widget, index):
+    """Click the middle of segment `index`."""
+    widget.update()
+    part = widget.winfo_width() / len(widget.labels)
+    widget.event_generate("<Button-1>", x=int(part * (index + 0.5)), y=10)
+    widget.update()
+
+
+def test_choosing_a_theme_applies_it_and_remembers_it(win, tmp_path, monkeypatch):
     monkeypatch.setattr(minimal, "system_mode", lambda: "dark")
-    win.theme = "auto"
-    win.cycle_theme()
-    assert win.theme == "light" and win.mode == "light" and win.theme_link.cget("text") == "Theme: Light"
-    assert win.cget("bg") == minimal.PALETTES["light"]["bg"]            # Light wins even though the system is dark
-    win.cycle_theme()
+    _click(win.theme_seg, 1)                                          # Light, even though the system is dark
+    assert win.theme == "light" and win.mode == "light" and win.cget("bg") == minimal.PALETTES["light"]["bg"]
+    _click(win.theme_seg, 2)
     assert win.theme == "dark" and win.mode == "dark"
-    win.cycle_theme()
-    assert win.theme == "auto" and win.mode == "dark" and win.theme_link.cget("text") == "Theme: Auto"
+    _click(win.theme_seg, 0)
+    assert win.theme == "auto" and win.mode == "dark"                 # Auto follows the (dark) system
+    assert win.theme_seg.index == 0
     assert minimal.json.loads((tmp_path / "settings.json").read_text())["theme"] == "auto"
 
 
 def test_a_chosen_theme_ignores_later_system_changes_but_auto_follows(win, monkeypatch):
-    win.theme = "dark"
-    win.cycle_theme()                                                   # dark -> auto
-    assert win.theme == "auto"
     monkeypatch.setattr(minimal, "system_mode", lambda: "light")
+    win.choose_theme(0)
     win.follow_system()
-    assert win.mode == "light"                                          # auto follows the system
-    win.cycle_theme()                                                   # auto -> light, now fixed
-    assert win.theme == "light"
+    assert win.mode == "light"                                        # auto follows the system
     monkeypatch.setattr(minimal, "system_mode", lambda: "dark")
     win.follow_system()
-    assert win.mode == "light"                                          # a chosen theme ignores the system
+    assert win.mode == "dark"
+    win.choose_theme(1)                                               # Light is now fixed
+    monkeypatch.setattr(minimal, "system_mode", lambda: "dark")
+    win.follow_system()
+    assert win.mode == "light"
 
 
-def test_theme_order_and_unknown_values():
-    assert [minimal.next_theme(t) for t in ("auto", "light", "dark")] == ["light", "dark", "auto"]
-    assert minimal.next_theme("nonsense") == "auto"
+def test_unknown_saved_theme_falls_back_to_auto(tmp_path, monkeypatch):
+    (tmp_path / "s.json").write_text('{"theme": "sepia"}')
+    monkeypatch.setattr(minimal, "SETTINGS", tmp_path / "s.json")
+    monkeypatch.setattr(minimal.ytdl, "update_engine", lambda: (False, "ok"))
+    window = minimal.App()
+    try:
+        assert window.theme == "auto" and window.theme_seg.index == 0
+    finally:
+        window.destroy()
 
 
 def test_the_saved_theme_is_used_at_start(tmp_path, monkeypatch):

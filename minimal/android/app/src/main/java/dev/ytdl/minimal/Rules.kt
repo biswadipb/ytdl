@@ -61,6 +61,7 @@ fun friendlyError(raw: String?): String {
 }
 
 val THEMES = listOf("auto", "light", "dark")
+val THEME_LABELS = listOf("Auto", "Light", "Dark")
 
-/** Auto, then Light, then Dark, then back to Auto. */
-fun nextTheme(current: String): String = THEMES.getOrNull(THEMES.indexOf(current) + 1) ?: THEMES.first()
+/** A saved value that isn't one of the known themes means "auto". */
+fun cleanTheme(saved: String?): String = saved?.takeIf { it in THEMES } ?: "auto"
