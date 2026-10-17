@@ -101,3 +101,28 @@ jobs:
         with:
           name: screenshots-minimal-android
           path: docs/screenshots/minimal-android-*.png
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r desktop/requirements.txt
+      - name: Try for a bigger screen so the windows fit
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Install-Module -Name DisplayConfig -Force -Scope CurrentUser -ErrorAction Stop
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::PrimaryScreen.Bounds | Out-String
+      - name: Full app
+        run: python tools/screenshots_desktop.py docs/screenshots/windows
+      - name: Minimal app
+        run: python tools/screenshots_minimal_desktop.py docs/screenshots/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-windows
+          path: docs/screenshots/windows/*.png

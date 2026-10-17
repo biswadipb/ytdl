@@ -1,5 +1,6 @@
 """Shared helpers for the screenshot scripts: grab a window and put it in a title bar with a soft shadow."""
 import os
+import sys
 import time
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageGrab
@@ -14,16 +15,33 @@ def font(size, bold=False):
     return ImageFont.load_default()
 
 
+def native_frame(window):
+    """(left, top, right, bottom) of the whole window, title bar included. Windows only."""
+    import ctypes
+    from ctypes import wintypes
+    rect = wintypes.RECT()
+    ctypes.windll.user32.GetWindowRect(int(window.wm_frame(), 16), ctypes.byref(rect))
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
 def grab(window):
     window.update_idletasks()
     window.update()
     time.sleep(0.6)
     window.update()
+    if sys.platform == "win32":
+        window.lift()
+        window.attributes("-topmost", True)
+        window.update()
+        time.sleep(0.3)
+        return ImageGrab.grab(bbox=native_frame(window), all_screens=True)
     x, y, w, h = window.winfo_rootx(), window.winfo_rooty(), window.winfo_width(), window.winfo_height()
     return ImageGrab.grab(bbox=(x, y, x + w, y + h), xdisplay=os.environ.get("DISPLAY"))
 
 
 def framed(img, dark, title="ytdl"):
+    if sys.platform == "win32":      # a real Windows capture already has its own title bar
+        return img.convert("RGBA")
     bar_h, pad = 34, 36
     w, h = img.width, img.height + bar_h
     bar_bg, fg = ((43, 43, 54), (230, 230, 240)) if dark else ((236, 236, 244), (50, 50, 66))

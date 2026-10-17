@@ -18,7 +18,7 @@ out.mkdir(parents=True, exist_ok=True)
 minimal.ytdl.update_engine = lambda: (False, "")   # no network calls while taking pictures
 
 w = minimal.App()
-w.geometry("420x640+40+40")
+w.geometry("420x%d+40+10" % (560 if sys.platform == "win32" else 640))
 w.field.set("https://youtu.be/jNQXAC9IVRw")
 demo = [("Me at the zoo", "running", 0.62), ("Autumn forest in 4K", "done", 1.0), ("Podcast episode 41", "done", 1.0)]
 for i, (title, status, progress) in enumerate(demo, 1):

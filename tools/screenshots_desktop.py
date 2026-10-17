@@ -92,19 +92,18 @@ def framed(img, dark):
     return canvas
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shotkit  # noqa: E402
+
+
 def shoot(app, name, dark):
-    app.update_idletasks()
-    app.update()
-    time.sleep(0.6)
-    app.update()
-    x, y, w, h = app.winfo_rootx(), app.winfo_rooty(), app.winfo_width(), app.winfo_height()
-    shot = ImageGrab.grab(bbox=(x, y, x + w, y + h), xdisplay=os.environ.get("DISPLAY"))
-    framed(shot, dark).save(out_dir / f"desktop-{name}.png")
+    shot = shotkit.grab(app)
+    shotkit.framed(shot, dark).save(out_dir / f"desktop-{name}.png")
     print("saved", name, shot.size)
 
 
 app = gui.App()
-app.geometry("940x900+40+40")
+app.geometry("940x%d+20+10" % (680 if sys.platform == "win32" else 900))
 app.folder.set("/Users/you/Downloads/ytdl")
 app.fmt_box.set("mp4 (video)")
 app.urls.insert("end", "https://www.youtube.com/watch?v=jNQXAC9IVRw")
