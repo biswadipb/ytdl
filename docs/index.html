@@ -160,7 +160,7 @@
     <div class="cta" style="margin-top:12px">
       <a class="btn" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-minimal-mac-apple-silicon.dmg">Mac (Apple silicon)</a>
       <a class="btn" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-minimal-mac-intel.dmg">Mac (Intel)</a>
-      <a class="btn" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-minimal-windows.exe">Windows</a>
+      <a class="btn" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-minimal-windows.zip">Windows</a>
       <a class="btn" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-minimal-android.apk">Android</a>
     </div>
     <p class="note" style="text-align:center">Install steps are the same as the full app, below. Minimal skips queues, subscriptions, sign-in, clips and the other advanced options.</p>
@@ -205,9 +205,9 @@
       </div>
       <div class="card">
         <h3>Windows</h3>
-        <p><a class="btn primary" style="font-size:15px;padding:10px 16px" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-windows.exe">Download for Windows</a></p>
+        <p><a class="btn primary" style="font-size:15px;padding:10px 16px" href="https://github.com/biswadipb/ytdl/releases/latest/download/ytdl-windows.zip">Download for Windows</a></p>
         <ol>
-          <li>Double-click <b>ytdl-windows.exe</b>.</li>
+          <li>Right-click <b>ytdl-windows.zip</b>, choose <b>Extract All</b>, then open <b>ytdl.exe</b> in the folder.</li>
           <li>If "Windows protected your PC" appears, choose <b>More info</b>, then <b>Run anyway</b>.</li>
         </ol>
       </div>
@@ -253,7 +253,7 @@
     var btn = document.getElementById("primary");
     var choice = null;
     if (/Android/i.test(ua)) choice = ["ytdl-android.apk", "Download for Android"];
-    else if (/Win/i.test(p) || /Windows/i.test(ua)) choice = ["ytdl-windows.exe", "Download for Windows"];
+    else if (/Win/i.test(p) || /Windows/i.test(ua)) choice = ["ytdl-windows.zip", "Download for Windows"];
     else if (/Mac/i.test(p) && !/iPhone|iPad/i.test(ua)) choice = ["ytdl-mac-apple-silicon.dmg", "Download for Mac"];
     if (choice) { btn.href = base + choice[0]; btn.textContent = choice[1]; }
     fetch("https://api.github.com/repos/biswadipb/ytdl/releases/latest")

@@ -147,7 +147,7 @@ object Downloads {
                         if (value == null) req.addOption(flag) else req.addOption(flag, value)
                     }
                     YoutubeDL.getInstance().execute(req, d.processId) { p, _, line ->
-                        if (p >= 0f) d.progress = p / 100f
+                        if (p >= 0f) d.progress = maxOf(d.progress, minOf(p / 100f, 0.99f))   // video then audio each count 0-100: never go back
                         if (post == null) Regex("""Destination: (.+)$""").find(line)?.let {
                             d.title = File(it.groupValues[1]).nameWithoutExtension.replace(Regex("""\.f\d+$"""), "")
                                 .replace(Regex(""" \[[\w-]{6,}\]| \(audio\)"""), "")

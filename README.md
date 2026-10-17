@@ -39,7 +39,7 @@ Prefer something simpler? **ytdl minimal** is a small, separate app for Mac, Win
 |---|---|
 | Mac (Apple silicon) | `ytdl-minimal-mac-apple-silicon.dmg` |
 | Mac (Intel) | `ytdl-minimal-mac-intel.dmg` |
-| Windows | `ytdl-minimal-windows.exe` |
+| Windows | `ytdl-minimal-windows.zip` |
 | Android | `ytdl-minimal-android.apk` |
 
 Install steps are the same as the full app below. It works with the same sites, uses the same download engine (and keeps it updated quietly), and saves to `Downloads/ytdl` unless you choose another folder with **Change** under the Video / Audio row (**Default** puts it back). What it leaves out on purpose: queues you manage, subscriptions, sign-in for private posts, clipping, subtitles, naming and folder rules, speed limits and storage controls. Channel and playlist links are refused with a note to use the full app. A copied link fills the box when you return to the app, but nothing downloads until you press **Download**. The code is in [`minimal/`](minimal).
@@ -68,7 +68,7 @@ Open the [**Releases** page](https://github.com/biswadipb/ytdl/releases/latest) 
    ```
 
 ### Windows
-1. Download `ytdl-windows.exe` and double-click it.
+1. Download `ytdl-windows.zip`, right-click it and choose **Extract All**, then open the `ytdl.exe` inside the folder.
 2. If "Windows protected your PC" appears: **More info** → **Run anyway**
    (the app is not code-signed).
 

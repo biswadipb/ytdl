@@ -157,36 +157,60 @@ class Button(Surface):
 
 
 class Field(Surface):
-    """The paste box: a rounded outline with the link inside and a Paste button on the right."""
+    """The paste box: a rounded outline with the link inside and a Paste button on the right.
+
+    Once a link is in the box that button becomes Clear. The hint ("Paste a video link") is drawn on the
+    canvas, never typed into the entry, so it can't be left behind as text you have to erase.
+    """
 
     def __init__(self, parent, app, on_paste, height=48):
         super().__init__(parent, app, height)
         self.on_paste = on_paste
-        self.placeholder_on = True
-        self.entry = tk.Entry(self, relief="flat", bd=0, highlightthickness=0, font=app.font)
+        self.var = tk.StringVar()
+        self.entry = tk.Entry(self, textvariable=self.var, relief="flat", bd=0, highlightthickness=0, font=app.font)
         self.entry.bind("<FocusIn>", lambda e: self.focus_changed(True))
         self.entry.bind("<FocusOut>", lambda e: self.focus_changed(False))
         self.entry.bind("<Return>", lambda e: app.start_download())
+        self.hint = tk.Label(self, text="Paste a video link", anchor="w", bd=0, font=app.font, cursor="xterm")
+        self.hint.bind("<Button-1>", lambda e: self.entry.focus_set())
+        self.var.trace_add("write", lambda *a: self.sync())
         self.focused = False
 
     def focus_changed(self, focused):
         self.focused = focused
-        if focused and self.placeholder_on:
-            self.entry.delete(0, "end")
-            self.placeholder_on = False
-        elif not focused and not self.entry.get():
-            self.placeholder_on = True
         self.redraw()
 
     def get(self):
-        return "" if self.placeholder_on else self.entry.get().strip()
+        return self.var.get().strip()
 
     def set(self, text):
-        self.placeholder_on = not text
-        self.entry.delete(0, "end")
-        if text:
-            self.entry.insert(0, text)
-        self.redraw()
+        self.var.set(text or "")
+        self.entry.icursor("end")
+
+    @property
+    def placeholder_on(self):
+        return not self.var.get()
+
+    def act(self):
+        """Clear when there is a link in the box, otherwise paste one."""
+        if self.var.get():
+            self.set("")
+            self.entry.focus_set()
+        else:
+            self.on_paste()
+
+    def sync(self):
+        """Keeps the hint and the Paste / Clear word in step with what is typed, without redrawing the box."""
+        try:
+            has = bool(self.var.get())
+            self.itemconfigure("hint", state="hidden" if has else "normal")
+            self.itemconfigure("paste", text="Clear" if has else "Paste")
+        except tk.TclError:
+            pass
+        else:
+            if bool(self.var.get()) != getattr(self, "_had", None):
+                self._had = bool(self.var.get())
+                self.redraw()          # the outline turns purple once there is a link
 
     def paint(self, w, h):
         p = self.app.p
@@ -194,17 +218,17 @@ class Field(Surface):
         if self.focused:
             pill(self, 0, 0, w, h, 16, p["ring"])
         pill(self, 2, 2, w - 2, h - 2, 14, p["field"], outline=ring, width=2 if self.focused else 1)
-        fg = p["placeholder"] if self.placeholder_on else p["fg"]
-        self.entry.configure(bg=p["field"], fg=fg, insertbackground=p["fg"])
-        if self.placeholder_on:
-            self.entry.delete(0, "end")
-            self.entry.insert(0, "Paste a video link")
-        self.delete("entry")
+        self.entry.configure(bg=p["field"], fg=p["fg"], insertbackground=p["fg"])
+        self.delete("entry", "hint", "paste")
         self.create_window(16, h / 2, window=self.entry, anchor="w", width=max(40, w - 100), tags="entry")
+        self.hint.configure(bg=p["field"], fg=p["placeholder"])
+        self.create_window(16, h / 2, window=self.hint, anchor="w", tags="hint")     # above the entry, so it shows through
         self.create_text(w - 18, h / 2, text="Paste", fill=p["accent"], font=self.app.font_bold, anchor="e", tags="paste")
-        self.tag_bind("paste", "<Button-1>", lambda e: self.on_paste())
+        self.tag_bind("paste", "<Button-1>", lambda e: self.act())
         self.tag_bind("paste", "<Enter>", lambda e: self.configure(cursor="hand2"))
         self.tag_bind("paste", "<Leave>", lambda e: self.configure(cursor=""))
+        self._had = bool(self.var.get())
+        self.sync()
 
 
 class Segmented(Surface):
@@ -287,15 +311,41 @@ class Dot(Surface):
 
 
 class Bar(Surface):
+    """The progress line. `target` is where the download really is; `fraction` is what is drawn, eased towards it."""
+
     def __init__(self, parent, app):
         super().__init__(parent, app, 4)
         self.fraction = 0.0
+        self.target = 0.0
+
+    def glide(self):
+        """One animation frame. Returns True while still moving."""
+        gap = self.target - self.fraction
+        if abs(gap) < 0.0005:
+            moved = self.fraction != self.target
+            self.fraction = self.target
+            if moved:
+                self.draw_fill()
+            return False
+        self.fraction += max(gap * 0.12, 0.0004) if gap > 0 else gap       # eases out, and never creeps backwards
+        self.draw_fill()
+        return True
 
     def paint(self, w, h):
-        p = self.app.p
-        pill(self, 0, 0, w, h, 2, p["track"])
-        if self.fraction > 0:
-            pill(self, 0, 0, max(4, w * self.fraction), h, 2, p["accent"])
+        pill(self, 0, 0, w, h, 2, self.app.p["track"])
+        self.draw_fill()
+
+    def draw_fill(self):
+        self.delete("fill")
+        w, h = self.winfo_width(), self.winfo_height()
+        if self.fraction <= 0 or w < 4:
+            return
+        x = max(h, w * self.fraction)
+        c = self.app.p["accent"]
+        r = h / 2
+        self.create_oval(0, 0, h, h, fill=c, outline=c, tags="fill")
+        self.create_oval(x - h, 0, x, h, fill=c, outline=c, tags="fill")
+        self.create_rectangle(r, 0, x - r, h, fill=c, outline=c, tags="fill")
 
 
 class Row(tk.Frame):
@@ -320,6 +370,16 @@ class Row(tk.Frame):
         self.sep.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 0))
         self.refresh()
 
+    def percent_text(self):
+        if self.job["status"] != "running":
+            return "Waiting"
+        return f"{int(self.bar.fraction * 100)}%" if self.bar.fraction >= 0.01 else "Starting"
+
+    def show_percent(self):
+        text = self.percent_text()
+        if self.right.cget("text") != text:
+            self.right.configure(text=text)
+
     def refresh(self):
         p, j = self.app.p, self.job
         self.configure(bg=p["bg"])
@@ -333,12 +393,12 @@ class Row(tk.Frame):
         self.note.grid_forget()
         self.bar.grid_forget()
         if status in ("queued", "running"):
-            pct = f"{int(j['progress'] * 100)}%" if status == "running" and j["progress"] else ("Starting" if status == "running" else "Waiting")
+            pct = self.percent_text()
             self.right.configure(text=pct, fg=p["muted"], cursor="")
             self.cancel.configure(fg=p["accent"])
             self.cancel.grid(row=0, column=3, padx=(10, 0), pady=(10, 0))
             self.bar.grid(row=1, column=1, columnspan=3, sticky="ew", pady=(5, 0))
-            self.bar.fraction = j["progress"]
+            self.bar.target = j["progress"]
             self.bar.redraw()
         elif status == "done":
             self.right.configure(text="Open", fg=p["accent"], cursor="hand2")
@@ -448,6 +508,8 @@ class App(tk.Tk):
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.quiet_engine_update, daemon=True).start()
         self.after(100, self.poll)
+        threading.Thread(target=ytdl.warm, daemon=True).start()     # load the download engine while the window is already up
+        self.after(100, self.glide)
         self.after(500, self.grab_copied_link)
         self.after(5000, self.follow_system)
 
@@ -627,14 +689,14 @@ class App(tk.Tk):
     @staticmethod
     def reveal(path, select=False):
         if sys.platform == "darwin":
-            subprocess.run(["open", "-R", path] if select else ["open", path])
+            subprocess.Popen(["open", "-R", path] if select else ["open", path])
         elif sys.platform == "win32":
             if select:
-                subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
             else:
                 os.startfile(path)
         else:
-            subprocess.run(["xdg-open", os.path.dirname(path) if select else path])
+            subprocess.Popen(["xdg-open", os.path.dirname(path) if select else path])
 
     def worker(self):
         while True:
@@ -646,16 +708,15 @@ class App(tk.Tk):
             self.run_job(job)
 
     def run_job(self, job):
+        overall = ytdl.Progress()
+
         def hook(d):
             if job["cancel"].is_set():
                 raise ytdl.Cancelled()
             title = (d.get("info_dict") or {}).get("title")
             if title:
                 self.events.put(("title", job, title))
-            if d["status"] == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                if total:
-                    self.events.put(("progress", job, d["downloaded_bytes"] / total))
+            self.events.put(("progress", job, overall.update(d)))
 
         for attempt in range(2):      # one automatic retry for hiccups such as a dropped connection
             try:
@@ -697,6 +758,16 @@ class App(tk.Tk):
         except queue.Empty:
             pass
         self.after(150, self.poll)
+
+    def glide(self):
+        """Eases every running progress line towards its real value, about 30 times a second."""
+        try:
+            for row in list(self.rows.values()):
+                if row.job["status"] == "running" and row.bar.glide():
+                    row.show_percent()
+        except tk.TclError:
+            pass
+        self.after(33, self.glide)
 
     def quiet_engine_update(self):
         try:

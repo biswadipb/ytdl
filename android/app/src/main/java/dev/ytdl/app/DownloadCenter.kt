@@ -327,7 +327,7 @@ object DownloadCenter {
                 if (item.cancelRequested) error("cancelled")
                 val req = buildRequest(item, source, post, index, sources.size, dir)
                 YoutubeDL.getInstance().execute(req, item.processId) { p, _, line ->
-                    if (p >= 0f) item.progress = (index + p / 100f) / sources.size
+                    if (p >= 0f) item.progress = maxOf(item.progress, minOf((index + p / 100f) / sources.size, 0.99f))   // never goes backwards
                     if (post == null) Regex("""Destination: (.+)$""").find(line)?.let {
                         val base = File(it.groupValues[1]).nameWithoutExtension
                         item.title = base.replace(Regex("""\.f\d+$"""), "")

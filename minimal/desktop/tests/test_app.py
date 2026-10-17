@@ -273,3 +273,44 @@ def test_long_paths_keep_their_ending(win):
     long_path = "/Users/someone/Documents/a/very/long/path/that/keeps/going/to/Videos"
     assert minimal.short_middle(long_path).endswith("to/Videos") and len(minimal.short_middle(long_path)) <= 34
     assert minimal.shown_path(str(Path.home() / "Downloads" / "ytdl")).replace("\\", "/") == "~/Downloads/ytdl"
+
+
+def test_paste_becomes_clear_once_a_link_is_in_the_box(win, monkeypatch):
+    monkeypatch.setattr(win, "clipboard_get", lambda: "https://youtu.be/jNQXAC9IVRw")
+    monkeypatch.setattr(win, "grab_copied_link", lambda: None)         # no automatic filling while we look
+    win.field.set("")
+    win.update()
+    word = lambda: win.field.itemcget("paste", "text")
+    assert word() == "Paste" and win.field.itemcget("hint", "state") == "normal"
+    win.field.act()                                                    # empty box: it pastes
+    win.update()
+    assert win.field.get() == "https://youtu.be/jNQXAC9IVRw" and word() == "Clear"
+    assert win.field.itemcget("hint", "state") == "hidden"
+    win.field.act()                                                    # link in box: it clears
+    win.update()
+    assert win.field.get() == "" and word() == "Paste" and win.field.itemcget("hint", "state") == "normal"
+
+
+def test_the_hint_is_never_typed_text(win):
+    win.update()
+    win.field.entry.focus_force()
+    win.update()
+    assert win.field.entry.get() == ""                                # nothing to erase, focused or not
+    win.field.set("https://youtu.be/x")
+    win.field.set("")
+    win.update()
+    assert win.field.entry.get() == "" and win.field.get() == ""
+
+
+def test_the_bar_glides_forward_and_never_back(win):
+    from app import Bar
+    bar = Bar(win, win)
+    bar.pack()
+    win.update()
+    seen = []
+    for target in (0.3, 0.6, 0.5, 0.9):          # a report that dips must not pull the bar back
+        bar.target = max(bar.target, target)
+        for _ in range(5):
+            bar.glide()
+            seen.append(bar.fraction)
+    assert seen == sorted(seen) and 0.5 < seen[-1] <= 0.9

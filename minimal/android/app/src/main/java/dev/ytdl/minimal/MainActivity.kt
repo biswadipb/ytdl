@@ -222,8 +222,8 @@ private fun LinkField(vm: MinimalViewModel, p: Palette, onPaste: () -> Unit) {
                     cursorBrush = SolidColor(p.accent), modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
                 )
             }
-            Text("Paste", color = p.accent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                modifier = Modifier.padding(start = 10.dp).clickable { onPaste() })
+            Text(if (vm.link.isEmpty()) "Paste" else "Clear", color = p.accent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                modifier = Modifier.padding(start = 10.dp).clickable { if (vm.link.isEmpty()) onPaste() else vm.link = "" })
         }
     }
 }
@@ -273,6 +273,8 @@ private fun QualityDropdown(vm: MinimalViewModel, p: Palette, modifier: Modifier
 
 @Composable
 private fun SessionRow(d: Download, p: Palette, onOpen: (Download) -> Unit) {
+    val shown by androidx.compose.animation.core.animateFloatAsState(
+        d.progress, androidx.compose.animation.core.tween(450, easing = androidx.compose.animation.core.LinearOutSlowInEasing), label = "progress")
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider(color = p.line)
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.Top) {
@@ -283,7 +285,7 @@ private fun SessionRow(d: Download, p: Palette, onOpen: (Download) -> Unit) {
                 if (d.status == Status.Running || d.status == Status.Queued) {
                     Spacer(Modifier.height(5.dp))
                     Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(p.track)) {
-                        Box(Modifier.fillMaxWidth(d.progress.coerceIn(0.02f, 1f)).fillMaxHeight().background(p.accent))
+                        Box(Modifier.fillMaxWidth(shown.coerceIn(0.02f, 1f)).fillMaxHeight().background(p.accent))
                     }
                 }
                 if (d.status == Status.Failed || d.status == Status.Cancelled) {
@@ -293,7 +295,7 @@ private fun SessionRow(d: Download, p: Palette, onOpen: (Download) -> Unit) {
             Spacer(Modifier.width(10.dp))
             when (d.status) {
                 Status.Queued, Status.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (d.status == Status.Running && d.progress > 0) "${(d.progress * 100).toInt()}%" else "Waiting",
+                    Text(if (d.status == Status.Running && d.progress > 0) "${(shown * 100).toInt()}%" else "Waiting",
                         color = p.muted, fontSize = 12.sp)
                     Text("Cancel", color = p.accent, fontSize = 12.sp, modifier = Modifier.padding(start = 10.dp).clickable { Downloads.cancel(d) })
                 }

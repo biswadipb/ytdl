@@ -433,7 +433,9 @@ private fun QueueRow(item: Item) {
                 TextButton(onClick = { DownloadCenter.retry(item) }) { Text("Retry") }
         }
         if (item.status == Status.Downloading) {
-            LinearProgressIndicator(progress = { item.progress }, modifier = Modifier.fillMaxWidth())
+            val shown by androidx.compose.animation.core.animateFloatAsState(
+                item.progress, androidx.compose.animation.core.tween(450, easing = androidx.compose.animation.core.LinearOutSlowInEasing), label = "progress")
+            LinearProgressIndicator(progress = { shown }, modifier = Modifier.fillMaxWidth())
         }
     }
 }

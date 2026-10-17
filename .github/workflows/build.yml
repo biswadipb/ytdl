@@ -34,12 +34,17 @@ jobs:
       - name: Install dependencies
         working-directory: desktop
         run: pip install -r requirements.txt -r requirements-build.txt
+      - name: Build PyInstaller's launcher ourselves (Windows)
+        if: runner.os == 'Windows'
+        run: pip install --force-reinstall --no-binary pyinstaller --no-deps pyinstaller
       - name: Build app
         working-directory: desktop
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            ICON=../assets/icon.ico; SEP=";"; EXTRA="--onefile"
+            V="${GITHUB_REF_NAME#v}"; case "$V" in [0-9]*) ;; *) V="0.0.0";; esac
+            python ../tools/make_version_info.py ytdl "ytdl video and audio downloader" "$V" version_info.txt
+            ICON=../assets/icon.ico; SEP=";"; EXTRA="--version-file version_info.txt"
           else
             ICON=../assets/icon.icns; SEP=":"; EXTRA=""
           fi
@@ -53,7 +58,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath desktop\dist\ytdl.exe -ArgumentList '--help' -Wait -PassThru
+          $p = Start-Process -FilePath desktop\dist\ytdl\ytdl.exe -ArgumentList '--help' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "ytdl.exe --help exited with code $($p.ExitCode)" }
       - name: Package (Mac)
         if: runner.os == 'macOS'
@@ -69,7 +74,9 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: cp desktop/dist/ytdl.exe "${{ matrix.name }}.exe"
+        run: |
+          mv desktop/dist/ytdl desktop/dist/ytdl-windows
+          cd desktop/dist && 7z a -tzip -mx=5 "../../${{ matrix.name }}.zip" ytdl-windows > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
@@ -99,12 +106,17 @@ jobs:
       - name: Install dependencies
         working-directory: minimal/desktop
         run: pip install -r requirements.txt -r requirements-build.txt
+      - name: Build PyInstaller's launcher ourselves (Windows)
+        if: runner.os == 'Windows'
+        run: pip install --force-reinstall --no-binary pyinstaller --no-deps pyinstaller
       - name: Build app
         working-directory: minimal/desktop
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            ICON=../../assets/icon.ico; SEP=";"; EXTRA="--onefile"
+            V="${GITHUB_REF_NAME#v}"; case "$V" in [0-9]*) ;; *) V="0.0.0";; esac
+            python ../../tools/make_version_info.py ytdl-minimal "ytdl minimal video and audio downloader" "$V" version_info.txt
+            ICON=../../assets/icon.ico; SEP=";"; EXTRA="--version-file version_info.txt"
           else
             ICON=../../assets/icon.icns; SEP=":"; EXTRA=""
           fi
@@ -118,7 +130,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath minimal\desktop\dist\ytdl-minimal.exe -ArgumentList '--selftest' -Wait -PassThru
+          $p = Start-Process -FilePath minimal\desktop\dist\ytdl-minimal\ytdl-minimal.exe -ArgumentList '--selftest' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "ytdl-minimal.exe --selftest exited with code $($p.ExitCode)" }
       - name: Package (Mac)
         if: runner.os == 'macOS'
@@ -133,7 +145,9 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: cp minimal/desktop/dist/ytdl-minimal.exe "${{ matrix.name }}.exe"
+        run: |
+          mv minimal/desktop/dist/ytdl-minimal minimal/desktop/dist/ytdl-minimal-windows
+          cd minimal/desktop/dist && 7z a -tzip -mx=5 "../../../${{ matrix.name }}.zip" ytdl-minimal-windows > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}

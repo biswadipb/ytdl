@@ -50,10 +50,31 @@ def _import_ytdl():
     import yt_dlp
 
 
-try:
-    _import_ytdl()
-except ImportError:
-    sys.exit("yt-dlp is not installed. Run: pip install -r requirements.txt")
+class _Engine:
+    """Stands in for the yt_dlp module until it is first used.
+
+    Importing yt-dlp takes a quarter of a second or more, so the windows open first and it loads in the
+    background (see warm). Anything that needs it before then simply waits for the import to finish.
+    """
+
+    def __getattr__(self, name):
+        try:
+            _import_ytdl()
+        except ImportError:
+            sys.exit("yt-dlp is not installed. Run: pip install -r requirements.txt")
+        return getattr(globals()["yt_dlp"], name)
+
+
+yt_dlp = _Engine()
+
+
+def warm():
+    """Loads yt-dlp and ffmpeg's location ahead of time. Call from a background thread after the window shows."""
+    try:
+        yt_dlp.version
+        find_ffmpeg()
+    except Exception:
+        pass
 
 QUALITIES = ["best", "2160", "1440", "1080", "720", "480", "360"]
 VIDEO_FORMATS = ["mp4", "mkv", "webm"]
@@ -324,6 +345,43 @@ def embed_subtitles(video, fmt):
 
 def glob_escape(text):
     return re.sub(r"([\[\]*?])", r"[\1]", text)
+
+
+class Progress:
+    """Turns yt-dlp's per-file progress reports into one number for the whole download.
+
+    yt-dlp reports video and audio separately (each 0 to 100%), and sizes it only estimates keep changing,
+    which makes a naive percentage jump back and forth. This adds the files up, treats the ones it hasn't met
+    yet as average-sized, never goes backwards, and holds at 99% until the download is truly finished.
+    """
+
+    def __init__(self):
+        self.files = {}      # filename -> (bytes done, bytes total)
+        self.expected = 1    # how many files this download is made of (video + audio = 2)
+        self.value = 0.0
+
+    def update(self, d):
+        """Feed one yt-dlp progress report. Returns the overall fraction, 0..0.99."""
+        info = d.get("info_dict") or {}
+        self.expected = max(self.expected, len(info.get("requested_formats") or []), 1)
+        key = d.get("filename") or d.get("tmpfilename") or "?"
+        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+        done = d.get("downloaded_bytes") or 0
+        count, index = d.get("fragment_count"), d.get("fragment_index")
+        if not total and count and index is not None:     # fragmented streams: count pieces instead of bytes
+            total, done = 1000, 1000 * index / count
+        if d.get("status") == "finished":
+            done = total = max(total, done, 1)
+        if total:
+            self.files[key] = (min(done, total), total)
+        if not self.files:
+            return self.value
+        known = sum(t for _, t in self.files.values())
+        average = known / len(self.files)
+        everything = known + max(0, self.expected - len(self.files)) * average
+        fraction = min(0.99, sum(x for x, _ in self.files.values()) / everything) if everything else 0.0
+        self.value = max(self.value, fraction)
+        return self.value
 
 
 def download_one(url, **kwargs):

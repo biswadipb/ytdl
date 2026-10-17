@@ -378,6 +378,7 @@ class App(tk.Tk):
             threading.Thread(target=self.worker, daemon=True).start()
         self.bind("<FocusIn>", lambda e: self.check_clipboard() if e.widget is self else None)
         self.after(100, self.poll)
+        threading.Thread(target=ytdl.warm, daemon=True).start()     # load the download engine while the window is already up
         self.after(600, self.check_clipboard)
         self.after(5000, self.follow_system)
         self.after(1500, lambda: self.start_engine_update(False))
@@ -948,16 +949,15 @@ class App(tk.Tk):
         iid, attempt = item["id"], 0
         put = self.events.put
 
+        overall = ytdl.Progress()
+
         def hook(d):
             if item["cancel"].is_set():
                 raise ytdl.Cancelled()
             title = (d.get("info_dict") or {}).get("title")
             if title:
                 put(("title", iid, title))
-            if d["status"] == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                if total:
-                    put(("progress", iid, d["downloaded_bytes"] * 100 / total))
+            put(("progress", iid, overall.update(d) * 100))
 
         while True:
             if item["cancel"].is_set():
