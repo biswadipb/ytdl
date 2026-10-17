@@ -233,7 +233,7 @@ def test_default_save_folder_is_downloads_ytdl(tmp_path, monkeypatch):
     try:
         assert window.is_default_folder()
         assert minimal.shown_path(window.folder).replace("\\", "/").endswith("Downloads/ytdl")
-        assert "Saving to" in window.where_label.cget("text") and not window.default_link.winfo_ismapped()
+        assert "Saving to" in window.where_label.cget("text") and not window.default_link.winfo_manager()
     finally:
         window.destroy()
 
@@ -244,11 +244,11 @@ def test_choosing_a_folder_is_used_remembered_and_can_be_reset(win, tmp_path, mo
     win.choose_folder()
     win.update()
     assert win.folder == str(target) and not win.is_default_folder()
-    assert win.default_link.winfo_ismapped()                              # a "Default" link appears for custom folders
+    assert win.default_link.winfo_manager()                              # a "Default" link appears for custom folders
     assert minimal.json.loads((tmp_path / "settings.json").read_text())["folder"] == str(target)
     win.use_default_folder()
     win.update()
-    assert win.is_default_folder() and not win.default_link.winfo_ismapped()
+    assert win.is_default_folder() and not win.default_link.winfo_manager()
 
 
 def test_cancelling_the_folder_dialog_changes_nothing(win, monkeypatch):
