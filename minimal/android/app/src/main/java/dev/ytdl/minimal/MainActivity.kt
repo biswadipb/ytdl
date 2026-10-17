@@ -80,7 +80,8 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            val p = if (isSystemInDarkTheme()) Dark else Light
+            val system = isSystemInDarkTheme()
+            val p = if (when (vm.theme) { "dark" -> true; "light" -> false; else -> system }) Dark else Light
             val view = LocalView.current
             SideEffect { WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !p.dark }
             MaterialTheme(colorScheme = if (p.dark) darkColorScheme(surface = p.field, onSurface = p.fg) else lightColorScheme()) {
@@ -153,6 +154,9 @@ private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit,
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             LogoMark(26)
             Text("ytdl", color = p.fg, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("Theme: ${vm.theme.replaceFirstChar { it.uppercase() }}", color = p.muted, fontSize = 12.sp,
+                modifier = Modifier.clickable { vm.cycleTheme() }.padding(vertical = 6.dp))
         }
         Spacer(Modifier.height(14.dp))
         LinkField(vm, p, onPaste)

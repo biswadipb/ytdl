@@ -61,6 +61,14 @@ def asset(name):
     return str(Path(base) / "assets" / name) if base else str(HERE.parent.parent / "assets" / name)
 
 
+THEMES = ["auto", "light", "dark"]
+
+
+def next_theme(current):
+    """Auto, then Light, then Dark, then back to Auto."""
+    return THEMES[(THEMES.index(current) + 1) % len(THEMES)] if current in THEMES else "auto"
+
+
 def load_settings():
     try:
         return json.loads(SETTINGS.read_text())
@@ -338,7 +346,9 @@ class App(tk.Tk):
             except Exception:
                 pass
         self.settings = load_settings()
-        self.mode = system_mode()
+        saved = self.settings.get("theme", "auto")
+        self.theme = saved if saved in THEMES else "auto"
+        self.mode = self.resolve_mode()
         self.p = PALETTES[self.mode]
         base = tkfont.nametofont("TkDefaultFont").actual("family")
         self.font = tkfont.Font(family=base, size=13)
@@ -369,6 +379,9 @@ class App(tk.Tk):
             self.logo.pack(side="left", padx=(0, 9))
         self.name = tk.Label(self.header, text="ytdl", font=self.font_title, bd=0)
         self.name.pack(side="left")
+        self.theme_link = tk.Label(self.header, font=self.font_small, bd=0, cursor="hand2")
+        self.theme_link.pack(side="right")
+        self.theme_link.bind("<Button-1>", lambda e: self.cycle_theme())
 
         self.field = Field(self.body, self, self.paste)
         self.field.pack(fill="x", pady=(0, 12))
@@ -423,9 +436,21 @@ class App(tk.Tk):
         except Exception:
             return None
 
+    def resolve_mode(self):
+        return system_mode() if self.theme == "auto" else self.theme
+
+    def cycle_theme(self):
+        self.theme = next_theme(self.theme)
+        self.settings["theme"] = self.theme
+        save_settings(self.settings)
+        self.mode = self.resolve_mode()
+        self.p = PALETTES[self.mode]
+        self.apply_theme()
+
     def apply_theme(self):
         p = self.p
         self.configure(bg=p["bg"])
+        self.theme_link.configure(text=f"Theme: {self.theme.capitalize()}", bg=p["bg"], fg=p["muted"])
         for w in (self.body, self.header, self.opts, self.list_head, self.list_frame):
             w.configure(bg=p["bg"])
         self.scroll_canvas.configure(bg=p["bg"])
@@ -441,7 +466,7 @@ class App(tk.Tk):
             row.refresh()
 
     def follow_system(self):
-        mode = system_mode()
+        mode = self.resolve_mode()      # only differs from the current look when the theme is Auto
         if mode != self.mode:
             self.mode, self.p = mode, PALETTES[mode]
             self.apply_theme()

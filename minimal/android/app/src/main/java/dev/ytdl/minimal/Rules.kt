@@ -59,3 +59,8 @@ fun friendlyError(raw: String?): String {
         ?: raw?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: "Download failed"
     return line.replace(Regex("""^\[[^\]]+\]\s*\S*:\s*"""), "").take(90)
 }
+
+val THEMES = listOf("auto", "light", "dark")
+
+/** Auto, then Light, then Dark, then back to Auto. */
+fun nextTheme(current: String): String = THEMES.getOrNull(THEMES.indexOf(current) + 1) ?: THEMES.first()

@@ -160,3 +160,47 @@ def test_a_second_window_does_not_reuse_the_first_windows_images(tmp_path, monke
         window = minimal.App()
         window.update()
         window.destroy()
+
+
+def test_theme_link_cycles_auto_light_dark_and_is_remembered(win, tmp_path, monkeypatch):
+    monkeypatch.setattr(minimal, "system_mode", lambda: "dark")
+    win.theme = "auto"
+    win.cycle_theme()
+    assert win.theme == "light" and win.mode == "light" and win.theme_link.cget("text") == "Theme: Light"
+    assert win.cget("bg") == minimal.PALETTES["light"]["bg"]            # Light wins even though the system is dark
+    win.cycle_theme()
+    assert win.theme == "dark" and win.mode == "dark"
+    win.cycle_theme()
+    assert win.theme == "auto" and win.mode == "dark" and win.theme_link.cget("text") == "Theme: Auto"
+    assert minimal.json.loads((tmp_path / "settings.json").read_text())["theme"] == "auto"
+
+
+def test_a_chosen_theme_ignores_later_system_changes_but_auto_follows(win, monkeypatch):
+    win.theme = "dark"
+    win.cycle_theme()                                                   # dark -> auto
+    assert win.theme == "auto"
+    monkeypatch.setattr(minimal, "system_mode", lambda: "light")
+    win.follow_system()
+    assert win.mode == "light"                                          # auto follows the system
+    win.cycle_theme()                                                   # auto -> light, now fixed
+    assert win.theme == "light"
+    monkeypatch.setattr(minimal, "system_mode", lambda: "dark")
+    win.follow_system()
+    assert win.mode == "light"                                          # a chosen theme ignores the system
+
+
+def test_theme_order_and_unknown_values():
+    assert [minimal.next_theme(t) for t in ("auto", "light", "dark")] == ["light", "dark", "auto"]
+    assert minimal.next_theme("nonsense") == "auto"
+
+
+def test_the_saved_theme_is_used_at_start(tmp_path, monkeypatch):
+    (tmp_path / "s.json").write_text('{"theme": "dark"}')
+    monkeypatch.setattr(minimal, "SETTINGS", tmp_path / "s.json")
+    monkeypatch.setattr(minimal.ytdl, "update_engine", lambda: (False, "ok"))
+    monkeypatch.setattr(minimal, "system_mode", lambda: "light")
+    window = minimal.App()
+    try:
+        assert window.theme == "dark" and window.mode == "dark"
+    finally:
+        window.destroy()

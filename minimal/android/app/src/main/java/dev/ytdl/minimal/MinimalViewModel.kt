@@ -17,6 +17,11 @@ class MinimalViewModel(app: Application) : AndroidViewModel(app) {
     private var videoIndex by mutableStateOf(prefs.getInt("video_q", 0).coerceIn(VIDEO_CHOICES.indices))
     private var audioIndex by mutableStateOf(prefs.getInt("audio_q", 0).coerceIn(AUDIO_CHOICES.indices))
 
+    var theme by mutableStateOf(prefs.getString("theme", "auto")?.takeIf { it in THEMES } ?: "auto")
+        private set
+
+    fun cycleTheme() { theme = nextTheme(theme); prefs.edit().putString("theme", theme).apply() }
+
     val choices get() = if (audio) AUDIO_CHOICES else VIDEO_CHOICES
     val choiceIndex get() = if (audio) audioIndex else videoIndex
 

@@ -72,4 +72,9 @@ class RulesTest {
         val scrape = parseThreadsScrape("{\"videos\":[\"https://v/1.mp4\"],\"title\":\"T\",\"image\":\"\"}")!!
         assertEquals(listOf("https://v/1.mp4"), scrape.videos); assertNull(scrape.image)
     }
+
+    @Test fun themeCyclesAutoLightDarkAndRecoversFromJunk() {
+        assertEquals("light", nextTheme("auto")); assertEquals("dark", nextTheme("light")); assertEquals("auto", nextTheme("dark"))
+        assertEquals("auto", nextTheme("nonsense"))
+    }
 }
