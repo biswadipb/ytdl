@@ -194,7 +194,7 @@ private fun Screen(vm: MinimalViewModel, p: Palette, onOpen: (Download) -> Unit,
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("THIS SESSION", color = p.muted, fontSize = 11.sp, letterSpacing = 0.6.sp)
+            Text("DOWNLOADS", color = p.muted, fontSize = 11.sp, letterSpacing = 0.6.sp)
             Spacer(Modifier.weight(1f))
             Text("Open Downloads", color = p.accent, fontSize = 12.sp, modifier = Modifier.clickable { onFolder() })
         }
