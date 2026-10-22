@@ -118,5 +118,6 @@ def test_download_one_falls_back_to_yt_dlp_when_reddit_cant_be_read(tmp_path, mo
         def extract_info(self, url, download):
             asked.append(url)
             return {"requested_downloads": [{"filepath": "/x/v.mp4"}]}
-    monkeypatch.setattr(ytdl.yt_dlp, "YoutubeDL", Fake, raising=False)
+    ytdl.yt_dlp.version                                  # load the engine first, so we patch the real module
+    monkeypatch.setattr(ytdl.yt_dlp, "YoutubeDL", Fake)
     assert ytdl.download_one(POST, output=str(tmp_path)) == ["/x/v.mp4"] and asked == [POST]
