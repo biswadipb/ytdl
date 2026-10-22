@@ -1,6 +1,7 @@
 """Reddit picture posts, with stand-ins for Reddit so no network is needed."""
 import json
 import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -70,8 +71,8 @@ def test_download_saves_each_picture_and_reports_steady_progress(tmp_path, media
     seen = []
     prog = ytdl.Progress()
     files = ri.download(POST, tmp_path, hooks=[lambda d: seen.append(prog.update(d))])
-    assert [f.rsplit("/", 1)[-1] for f in files] == ["Trip day 1 [p1] (1 of 2).jpg", "Trip day 1 [p1] (2 of 2).jpg"]
-    assert all((tmp_path / f.rsplit("/", 1)[-1]).stat().st_size > 1000 for f in files)   # second one used its fallback
+    assert [Path(f).name for f in files] == ["Trip day 1 [p1] (1 of 2).jpg", "Trip day 1 [p1] (2 of 2).jpg"]
+    assert all(Path(f).stat().st_size > 1000 for f in files)   # second one used its fallback
     assert seen == sorted(seen) and 0 < seen[-1] <= 0.99
 
 
