@@ -17,7 +17,9 @@ video or audio-only. Everything runs locally: no accounts, no web service. Saved
 | Dailymotion | Works for videos that aren't region-locked |
 | SoundCloud | Works (tested with a real track) |
 | Vimeo | Supported, but Vimeo now asks for a login on many videos, so sign in first (see below) |
-| TikTok, Reddit, Twitch (clips and past broadcasts) | Supported by the download engine; I couldn't test a real download from my network, so tell me if one fails |
+| TikTok, Twitch (clips and past broadcasts) | Supported by the download engine; I couldn't test a real download from my network, so tell me if one fails |
+| Reddit videos | Supported by the download engine; not tested from my network |
+| Reddit pictures and galleries | Saved as the original image files (one file per picture). Tested on sample data only: Reddit blocked my network from reading posts, so tell me if one fails. Reddit may refuse anonymous requests, and the app then says so. |
 
 **Formats:** video as `mp4`, `mkv` or `webm`; audio only as `mp3`, `m4a`, `opus`, `wav` or `flac`.
 

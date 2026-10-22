@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import reddit_images
 import threads
 import time
 import urllib.request
@@ -387,6 +388,16 @@ class Progress:
 def download_one(url, **kwargs):
     """Download one link. Returns the saved file paths; raises DownloadError or Cancelled."""
     Path(kwargs["output"]).expanduser().mkdir(parents=True, exist_ok=True)
+    if reddit_images.is_reddit_url(url):       # picture posts; videos (and anything unreadable) go on to yt-dlp
+        try:
+            files = reddit_images.download(url, kwargs["output"], hooks=kwargs.get("hooks", ()),
+                                           audio=kwargs.get("fmt", "mp4") in AUDIO_FORMATS)
+        except reddit_images.RedditError as e:
+            if "picture" in str(e) or "download the picture" in str(e):
+                raise
+            files = None                       # couldn't read the post: let yt-dlp try (it handles videos)
+        if files:
+            return files
     with yt_dlp.YoutubeDL(build_options(**kwargs)) as ydl:
         try:
             if threads.is_threads_url(url):  # yt-dlp can't read Threads, so ytdl finds the video links itself

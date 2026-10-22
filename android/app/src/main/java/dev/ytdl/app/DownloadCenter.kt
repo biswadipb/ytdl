@@ -62,7 +62,7 @@ val SPEEDS = listOf("Unlimited" to 0L, "500 KB/s" to 500_000L, "1 MB/s" to 1_000
 
 /** Formats whose cover art can be embedded with the ffmpeg that ships in the app. */
 private val COVER_FORMATS = setOf("mp3", "flac", "opus", "mkv")
-private val MEDIA_EXTENSIONS = setOf("mp4", "mkv", "webm", "mp3", "m4a", "opus", "wav", "flac", "mov", "ogg", "srt")
+private val MEDIA_EXTENSIONS = setOf("mp4", "mkv", "webm", "mp3", "m4a", "opus", "wav", "flac", "mov", "ogg", "srt", "jpg", "png", "gif", "webp")
 val LINK_PATTERN = Regex(
     "https?://([\\w-]+\\.)*(youtube\\.com|youtu\\.be|instagram\\.com|x\\.com|twitter\\.com|" +
         "facebook\\.com|fb\\.watch|threads\\.(net|com)|dailymotion\\.com|dai\\.ly|tiktok\\.com|reddit\\.com|redd\\.it|vimeo\\.com|twitch\\.tv|soundcloud\\.com)/\\S+", RegexOption.IGNORE_CASE
@@ -323,7 +323,17 @@ object DownloadCenter {
                 o.playlist -> post.videos
                 else -> post.videos.take(1)
             }
-            sources.forEachIndexed { index, source ->
+            // Reddit picture posts: yt-dlp only knows videos, so the pictures are saved directly. Anything else falls through.
+            val pictures = if (post == null && isRedditUrl(item.url)) RedditImages.resolve(item.url) else null
+            if (pictures != null) {
+                if (o.audioOnly) error("That post is a picture, so there is no audio to save. Choose a video format.")
+                item.title = pictures.title.take(60).ifBlank { item.title }
+                RedditImages.download(pictures, dir) { f ->
+                    if (item.cancelRequested) error("cancelled")
+                    item.progress = maxOf(item.progress, minOf(f, 0.99f))
+                }
+            }
+            if (pictures == null) sources.forEachIndexed { index, source ->
                 if (item.cancelRequested) error("cancelled")
                 val req = buildRequest(item, source, post, index, sources.size, dir)
                 YoutubeDL.getInstance().execute(req, item.processId) { p, _, line ->

@@ -139,6 +139,20 @@ object Downloads {
         try {
             for (attempt in 0..1) {      // one automatic retry for hiccups like a dropped connection
                 try {
+                    // Reddit picture posts: yt-dlp only knows videos, so the pictures are saved directly. Anything else falls through.
+                    val pictures = if (isRedditUrl(d.url)) RedditImages.resolve(d.url) else null
+                    if (pictures != null) {
+                        if (d.audio) error("That post is a picture, so there is no audio to save. Choose Video.")
+                        d.title = pictures.title.take(60).ifBlank { d.title }
+                        val saved = RedditImages.download(pictures, dir) { f ->
+                            if (d.cancelRequested) error("cancelled")
+                            d.progress = maxOf(d.progress, minOf(f, 0.99f))
+                        }
+                        d.uri = saved.map { saveToDownloads(it) }.first()
+                        d.progress = 1f
+                        d.status = Status.Done
+                        return
+                    }
                     val post = if (isThreadsUrl(d.url)) ThreadsResolver.resolve(app, d.url) else null
                     post?.title?.take(60)?.takeIf { it.isNotBlank() }?.let { d.title = it }
                     val label = post?.let { "${safeFileText(it.user)} - ${safeFileText(it.title).take(80).ifEmpty { "Threads post ${it.code}" }} [${it.code}]" }
